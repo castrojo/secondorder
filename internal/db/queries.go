@@ -1,0 +1,641 @@
+package db
+
+import (
+	"database/sql"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/msoedov/thelastorg/internal/models"
+)
+
+// --- Agents ---
+
+func (d *DB) CreateAgent(a *models.Agent) error {
+	if a.ID == "" {
+		a.ID = uuid.NewString()
+	}
+	now := time.Now()
+	a.CreatedAt = now
+	a.UpdatedAt = now
+	_, err := d.Exec(`INSERT INTO agents (id, name, slug, archetype_slug, model, working_dir, max_turns, timeout_sec,
+		heartbeat_enabled, heartbeat_cron, chrome_enabled, reports_to, review_agent_id, active, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, a.Name, a.Slug, a.ArchetypeSlug, a.Model, a.WorkingDir, a.MaxTurns, a.TimeoutSec,
+		a.HeartbeatEnabled, a.HeartbeatCron, a.ChromeEnabled, a.ReportsTo, a.ReviewAgentID, a.Active, a.CreatedAt, a.UpdatedAt)
+	return err
+}
+
+func (d *DB) GetAgent(id string) (*models.Agent, error) {
+	a := &models.Agent{}
+	err := d.QueryRow(`SELECT id, name, slug, archetype_slug, model, working_dir, max_turns, timeout_sec,
+		heartbeat_enabled, heartbeat_cron, chrome_enabled, reports_to, review_agent_id, active, created_at, updated_at
+		FROM agents WHERE id = ?`, id).Scan(
+		&a.ID, &a.Name, &a.Slug, &a.ArchetypeSlug, &a.Model, &a.WorkingDir, &a.MaxTurns, &a.TimeoutSec,
+		&a.HeartbeatEnabled, &a.HeartbeatCron, &a.ChromeEnabled, &a.ReportsTo, &a.ReviewAgentID, &a.Active, &a.CreatedAt, &a.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+func (d *DB) GetAgentBySlug(slug string) (*models.Agent, error) {
+	a := &models.Agent{}
+	err := d.QueryRow(`SELECT id, name, slug, archetype_slug, model, working_dir, max_turns, timeout_sec,
+		heartbeat_enabled, heartbeat_cron, chrome_enabled, reports_to, review_agent_id, active, created_at, updated_at
+		FROM agents WHERE slug = ?`, slug).Scan(
+		&a.ID, &a.Name, &a.Slug, &a.ArchetypeSlug, &a.Model, &a.WorkingDir, &a.MaxTurns, &a.TimeoutSec,
+		&a.HeartbeatEnabled, &a.HeartbeatCron, &a.ChromeEnabled, &a.ReportsTo, &a.ReviewAgentID, &a.Active, &a.CreatedAt, &a.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+func (d *DB) ListAgents() ([]models.Agent, error) {
+	rows, err := d.Query(`SELECT id, name, slug, archetype_slug, model, working_dir, max_turns, timeout_sec,
+		heartbeat_enabled, heartbeat_cron, chrome_enabled, reports_to, review_agent_id, active, created_at, updated_at
+		FROM agents ORDER BY created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var agents []models.Agent
+	for rows.Next() {
+		var a models.Agent
+		if err := rows.Scan(&a.ID, &a.Name, &a.Slug, &a.ArchetypeSlug, &a.Model, &a.WorkingDir, &a.MaxTurns, &a.TimeoutSec,
+			&a.HeartbeatEnabled, &a.HeartbeatCron, &a.ChromeEnabled, &a.ReportsTo, &a.ReviewAgentID, &a.Active, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			return nil, err
+		}
+		agents = append(agents, a)
+	}
+	return agents, rows.Err()
+}
+
+func (d *DB) UpdateAgent(a *models.Agent) error {
+	a.UpdatedAt = time.Now()
+	_, err := d.Exec(`UPDATE agents SET name=?, slug=?, archetype_slug=?, model=?, working_dir=?, max_turns=?, timeout_sec=?,
+		heartbeat_enabled=?, heartbeat_cron=?, chrome_enabled=?, reports_to=?, review_agent_id=?, active=?, updated_at=?
+		WHERE id=?`,
+		a.Name, a.Slug, a.ArchetypeSlug, a.Model, a.WorkingDir, a.MaxTurns, a.TimeoutSec,
+		a.HeartbeatEnabled, a.HeartbeatCron, a.ChromeEnabled, a.ReportsTo, a.ReviewAgentID, a.Active, a.UpdatedAt, a.ID)
+	return err
+}
+
+func (d *DB) GetCEOAgent() (*models.Agent, error) {
+	a := &models.Agent{}
+	err := d.QueryRow(`SELECT id, name, slug, archetype_slug, model, working_dir, max_turns, timeout_sec,
+		heartbeat_enabled, heartbeat_cron, chrome_enabled, reports_to, review_agent_id, active, created_at, updated_at
+		FROM agents WHERE archetype_slug = 'ceo' LIMIT 1`).Scan(
+		&a.ID, &a.Name, &a.Slug, &a.ArchetypeSlug, &a.Model, &a.WorkingDir, &a.MaxTurns, &a.TimeoutSec,
+		&a.HeartbeatEnabled, &a.HeartbeatCron, &a.ChromeEnabled, &a.ReportsTo, &a.ReviewAgentID, &a.Active, &a.CreatedAt, &a.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+func (d *DB) GetReviewer(agentID string) (*models.Agent, error) {
+	agent, err := d.GetAgent(agentID)
+	if err != nil {
+		return nil, fmt.Errorf("get agent: %w", err)
+	}
+
+	// 1. Explicit review agent
+	if agent.ReviewAgentID != nil {
+		reviewer, err := d.GetAgent(*agent.ReviewAgentID)
+		if err == nil {
+			return reviewer, nil
+		}
+	}
+
+	// 2. Reports-to chain
+	if agent.ReportsTo != nil {
+		manager, err := d.GetAgent(*agent.ReportsTo)
+		if err == nil {
+			return manager, nil
+		}
+	}
+
+	// 3. CEO fallback
+	return d.GetCEOAgent()
+}
+
+func (d *DB) CountAgents() (int, int, error) {
+	var total, active int
+	err := d.QueryRow(`SELECT COUNT(*), COALESCE(SUM(CASE WHEN active=1 THEN 1 ELSE 0 END), 0) FROM agents`).Scan(&total, &active)
+	return total, active, err
+}
+
+// --- Issues ---
+
+func (d *DB) CreateIssue(i *models.Issue) error {
+	if i.ID == "" {
+		i.ID = uuid.NewString()
+	}
+	now := time.Now()
+	i.CreatedAt = now
+	i.UpdatedAt = now
+	_, err := d.Exec(`INSERT INTO issues (id, key, title, description, status, priority, assignee_agent_id,
+		parent_issue_key, work_block_id, started_at, completed_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		i.ID, i.Key, i.Title, i.Description, i.Status, i.Priority, i.AssigneeAgentID,
+		i.ParentIssueKey, i.WorkBlockID, i.StartedAt, i.CompletedAt, i.CreatedAt, i.UpdatedAt)
+	return err
+}
+
+func (d *DB) GetIssue(key string) (*models.Issue, error) {
+	i := &models.Issue{}
+	err := d.QueryRow(`SELECT i.id, i.key, i.title, i.description, i.status, i.priority, i.assignee_agent_id,
+		i.parent_issue_key, i.work_block_id, i.started_at, i.completed_at, i.created_at, i.updated_at,
+		COALESCE(a.name, '')
+		FROM issues i LEFT JOIN agents a ON i.assignee_agent_id = a.id
+		WHERE i.key = ?`, key).Scan(
+		&i.ID, &i.Key, &i.Title, &i.Description, &i.Status, &i.Priority, &i.AssigneeAgentID,
+		&i.ParentIssueKey, &i.WorkBlockID, &i.StartedAt, &i.CompletedAt, &i.CreatedAt, &i.UpdatedAt,
+		&i.AssigneeName)
+	if err != nil {
+		return nil, err
+	}
+	return i, nil
+}
+
+func (d *DB) ListIssues(status string, limit int) ([]models.Issue, error) {
+	query := `SELECT i.id, i.key, i.title, i.description, i.status, i.priority, i.assignee_agent_id,
+		i.parent_issue_key, i.work_block_id, i.started_at, i.completed_at, i.created_at, i.updated_at,
+		COALESCE(a.name, '')
+		FROM issues i LEFT JOIN agents a ON i.assignee_agent_id = a.id`
+
+	var args []any
+	if status != "" {
+		query += " WHERE i.status = ?"
+		args = append(args, status)
+	}
+	query += " ORDER BY i.priority DESC, i.created_at DESC"
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	rows, err := d.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var issues []models.Issue
+	for rows.Next() {
+		var i models.Issue
+		if err := rows.Scan(&i.ID, &i.Key, &i.Title, &i.Description, &i.Status, &i.Priority, &i.AssigneeAgentID,
+			&i.ParentIssueKey, &i.WorkBlockID, &i.StartedAt, &i.CompletedAt, &i.CreatedAt, &i.UpdatedAt,
+			&i.AssigneeName); err != nil {
+			return nil, err
+		}
+		issues = append(issues, i)
+	}
+	return issues, rows.Err()
+}
+
+func (d *DB) UpdateIssue(i *models.Issue) error {
+	i.UpdatedAt = time.Now()
+	_, err := d.Exec(`UPDATE issues SET title=?, description=?, status=?, priority=?, assignee_agent_id=?,
+		parent_issue_key=?, work_block_id=?, started_at=?, completed_at=?, updated_at=?
+		WHERE key=?`,
+		i.Title, i.Description, i.Status, i.Priority, i.AssigneeAgentID,
+		i.ParentIssueKey, i.WorkBlockID, i.StartedAt, i.CompletedAt, i.UpdatedAt, i.Key)
+	return err
+}
+
+func (d *DB) CheckoutIssue(key, agentID string, expectedStatuses []string) error {
+	if len(expectedStatuses) == 0 {
+		return fmt.Errorf("expectedStatuses cannot be empty")
+	}
+	placeholders := strings.Repeat("?,", len(expectedStatuses))
+	placeholders = placeholders[:len(placeholders)-1]
+
+	now := time.Now()
+	query := fmt.Sprintf(`UPDATE issues SET status='in_progress', assignee_agent_id=?, started_at=?, updated_at=?
+		WHERE key=? AND status IN (%s)`, placeholders)
+
+	args := []any{agentID, now, now, key}
+	for _, s := range expectedStatuses {
+		args = append(args, s)
+	}
+
+	res, err := d.Exec(query, args...)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("issue %s not in expected status", key)
+	}
+	return nil
+}
+
+func (d *DB) GetAgentInbox(agentID string) ([]models.Issue, error) {
+	rows, err := d.Query(`SELECT id, key, title, description, status, priority, assignee_agent_id,
+		parent_issue_key, work_block_id, started_at, completed_at, created_at, updated_at
+		FROM issues WHERE assignee_agent_id=? AND status NOT IN ('done','cancelled')
+		ORDER BY priority DESC, created_at`, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var issues []models.Issue
+	for rows.Next() {
+		var i models.Issue
+		if err := rows.Scan(&i.ID, &i.Key, &i.Title, &i.Description, &i.Status, &i.Priority, &i.AssigneeAgentID,
+			&i.ParentIssueKey, &i.WorkBlockID, &i.StartedAt, &i.CompletedAt, &i.CreatedAt, &i.UpdatedAt); err != nil {
+			return nil, err
+		}
+		issues = append(issues, i)
+	}
+	return issues, rows.Err()
+}
+
+func (d *DB) CountIssues() (int, int, error) {
+	var total, open int
+	err := d.QueryRow(`SELECT COUNT(*), COALESCE(SUM(CASE WHEN status NOT IN ('done','cancelled') THEN 1 ELSE 0 END), 0) FROM issues`).Scan(&total, &open)
+	return total, open, err
+}
+
+func (d *DB) GetChildIssues(parentKey string) ([]models.Issue, error) {
+	rows, err := d.Query(`SELECT id, key, title, description, status, priority, assignee_agent_id,
+		parent_issue_key, work_block_id, started_at, completed_at, created_at, updated_at
+		FROM issues WHERE parent_issue_key=? ORDER BY created_at`, parentKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var issues []models.Issue
+	for rows.Next() {
+		var i models.Issue
+		if err := rows.Scan(&i.ID, &i.Key, &i.Title, &i.Description, &i.Status, &i.Priority, &i.AssigneeAgentID,
+			&i.ParentIssueKey, &i.WorkBlockID, &i.StartedAt, &i.CompletedAt, &i.CreatedAt, &i.UpdatedAt); err != nil {
+			return nil, err
+		}
+		issues = append(issues, i)
+	}
+	return issues, rows.Err()
+}
+
+func (d *DB) NextIssueKey() (string, error) {
+	var maxNum sql.NullInt64
+	err := d.QueryRow(`SELECT MAX(CAST(SUBSTR(key, 5) AS INTEGER)) FROM issues WHERE key LIKE 'TLO-%'`).Scan(&maxNum)
+	if err != nil {
+		return "", err
+	}
+	next := 1
+	if maxNum.Valid {
+		next = int(maxNum.Int64) + 1
+	}
+	return fmt.Sprintf("TLO-%d", next), nil
+}
+
+// --- Runs ---
+
+func (d *DB) CreateRun(r *models.Run) error {
+	if r.ID == "" {
+		r.ID = uuid.NewString()
+	}
+	now := time.Now()
+	r.StartedAt = now
+	r.CreatedAt = now
+	_, err := d.Exec(`INSERT INTO runs (id, agent_id, issue_key, mode, status, stdout, diff,
+		input_tokens, output_tokens, cache_read_tokens, cache_create_tokens, total_cost_usd,
+		started_at, completed_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.AgentID, r.IssueKey, r.Mode, r.Status, r.Stdout, r.Diff,
+		r.InputTokens, r.OutputTokens, r.CacheReadTokens, r.CacheCreateTokens, r.TotalCostUSD,
+		r.StartedAt, r.CompletedAt, r.CreatedAt)
+	return err
+}
+
+func (d *DB) GetRun(id string) (*models.Run, error) {
+	r := &models.Run{}
+	err := d.QueryRow(`SELECT id, agent_id, issue_key, mode, status, stdout, diff,
+		input_tokens, output_tokens, cache_read_tokens, cache_create_tokens, total_cost_usd,
+		started_at, completed_at, created_at
+		FROM runs WHERE id=?`, id).Scan(
+		&r.ID, &r.AgentID, &r.IssueKey, &r.Mode, &r.Status, &r.Stdout, &r.Diff,
+		&r.InputTokens, &r.OutputTokens, &r.CacheReadTokens, &r.CacheCreateTokens, &r.TotalCostUSD,
+		&r.StartedAt, &r.CompletedAt, &r.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+func (d *DB) ListRunsForAgent(agentID string, limit int) ([]models.Run, error) {
+	query := `SELECT id, agent_id, issue_key, mode, status, stdout, diff,
+		input_tokens, output_tokens, cache_read_tokens, cache_create_tokens, total_cost_usd,
+		started_at, completed_at, created_at
+		FROM runs WHERE agent_id=? ORDER BY created_at DESC`
+	var args []any
+	args = append(args, agentID)
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	rows, err := d.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanRuns(rows)
+}
+
+func (d *DB) ListRunsForIssue(issueKey string) ([]models.Run, error) {
+	rows, err := d.Query(`SELECT id, agent_id, issue_key, mode, status, stdout, diff,
+		input_tokens, output_tokens, cache_read_tokens, cache_create_tokens, total_cost_usd,
+		started_at, completed_at, created_at
+		FROM runs WHERE issue_key=? ORDER BY created_at DESC`, issueKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanRuns(rows)
+}
+
+func (d *DB) UpdateRunStdout(id, stdout string) error {
+	_, err := d.Exec(`UPDATE runs SET stdout=? WHERE id=?`, stdout, id)
+	return err
+}
+
+func (d *DB) CompleteRun(id, status, stdout, diff string, tokens models.Run) error {
+	now := time.Now()
+	_, err := d.Exec(`UPDATE runs SET status=?, stdout=?, diff=?, input_tokens=?, output_tokens=?,
+		cache_read_tokens=?, cache_create_tokens=?, total_cost_usd=?, completed_at=?
+		WHERE id=?`,
+		status, stdout, diff, tokens.InputTokens, tokens.OutputTokens,
+		tokens.CacheReadTokens, tokens.CacheCreateTokens, tokens.TotalCostUSD, now, id)
+	return err
+}
+
+func (d *DB) CountRunningRuns() (int, error) {
+	var count int
+	err := d.QueryRow(`SELECT COUNT(*) FROM runs WHERE status='running'`).Scan(&count)
+	return count, err
+}
+
+func scanRuns(rows *sql.Rows) ([]models.Run, error) {
+	var runs []models.Run
+	for rows.Next() {
+		var r models.Run
+		if err := rows.Scan(&r.ID, &r.AgentID, &r.IssueKey, &r.Mode, &r.Status, &r.Stdout, &r.Diff,
+			&r.InputTokens, &r.OutputTokens, &r.CacheReadTokens, &r.CacheCreateTokens, &r.TotalCostUSD,
+			&r.StartedAt, &r.CompletedAt, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		runs = append(runs, r)
+	}
+	return runs, rows.Err()
+}
+
+// --- Comments ---
+
+func (d *DB) CreateComment(c *models.Comment) error {
+	if c.ID == "" {
+		c.ID = uuid.NewString()
+	}
+	c.CreatedAt = time.Now()
+	_, err := d.Exec(`INSERT INTO comments (id, issue_key, agent_id, author, body, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		c.ID, c.IssueKey, c.AgentID, c.Author, c.Body, c.CreatedAt)
+	return err
+}
+
+func (d *DB) ListComments(issueKey string) ([]models.Comment, error) {
+	rows, err := d.Query(`SELECT id, issue_key, agent_id, author, body, created_at
+		FROM comments WHERE issue_key=? ORDER BY created_at`, issueKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var comments []models.Comment
+	for rows.Next() {
+		var c models.Comment
+		if err := rows.Scan(&c.ID, &c.IssueKey, &c.AgentID, &c.Author, &c.Body, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		comments = append(comments, c)
+	}
+	return comments, rows.Err()
+}
+
+// --- API Keys ---
+
+func (d *DB) CreateAPIKey(agentID, keyHash, prefix string) error {
+	_, err := d.Exec(`INSERT INTO api_keys (id, agent_id, key_hash, prefix, created_at) VALUES (?, ?, ?, ?, ?)`,
+		uuid.NewString(), agentID, keyHash, prefix, time.Now())
+	return err
+}
+
+func (d *DB) GetAgentByAPIKey(keyHash string) (*models.Agent, error) {
+	a := &models.Agent{}
+	err := d.QueryRow(`SELECT a.id, a.name, a.slug, a.archetype_slug, a.model, a.working_dir, a.max_turns, a.timeout_sec,
+		a.heartbeat_enabled, a.heartbeat_cron, a.chrome_enabled, a.reports_to, a.review_agent_id, a.active, a.created_at, a.updated_at
+		FROM api_keys k JOIN agents a ON k.agent_id = a.id
+		WHERE k.key_hash=? AND k.revoked_at IS NULL`, keyHash).Scan(
+		&a.ID, &a.Name, &a.Slug, &a.ArchetypeSlug, &a.Model, &a.WorkingDir, &a.MaxTurns, &a.TimeoutSec,
+		&a.HeartbeatEnabled, &a.HeartbeatCron, &a.ChromeEnabled, &a.ReportsTo, &a.ReviewAgentID, &a.Active, &a.CreatedAt, &a.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+func (d *DB) RevokeAPIKeys(agentID string) error {
+	_, err := d.Exec(`UPDATE api_keys SET revoked_at=? WHERE agent_id=? AND revoked_at IS NULL`, time.Now(), agentID)
+	return err
+}
+
+// --- Approvals ---
+
+func (d *DB) CreateApproval(a *models.Approval) error {
+	if a.ID == "" {
+		a.ID = uuid.NewString()
+	}
+	a.CreatedAt = time.Now()
+	_, err := d.Exec(`INSERT INTO approvals (id, issue_key, requested_by, reviewer_id, status, comment, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, a.IssueKey, a.RequestedBy, a.ReviewerID, a.Status, a.Comment, a.CreatedAt)
+	return err
+}
+
+func (d *DB) GetApproval(id string) (*models.Approval, error) {
+	a := &models.Approval{}
+	err := d.QueryRow(`SELECT id, issue_key, requested_by, reviewer_id, status, comment, resolved_at, created_at
+		FROM approvals WHERE id=?`, id).Scan(
+		&a.ID, &a.IssueKey, &a.RequestedBy, &a.ReviewerID, &a.Status, &a.Comment, &a.ResolvedAt, &a.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+func (d *DB) ListPendingApprovals() ([]models.Approval, error) {
+	rows, err := d.Query(`SELECT id, issue_key, requested_by, reviewer_id, status, comment, resolved_at, created_at
+		FROM approvals WHERE status='pending' ORDER BY created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var approvals []models.Approval
+	for rows.Next() {
+		var a models.Approval
+		if err := rows.Scan(&a.ID, &a.IssueKey, &a.RequestedBy, &a.ReviewerID, &a.Status, &a.Comment, &a.ResolvedAt, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		approvals = append(approvals, a)
+	}
+	return approvals, rows.Err()
+}
+
+func (d *DB) ResolveApproval(id, status, comment string) error {
+	now := time.Now()
+	_, err := d.Exec(`UPDATE approvals SET status=?, comment=?, resolved_at=? WHERE id=?`, status, comment, now, id)
+	return err
+}
+
+// --- Cost / Budget ---
+
+func (d *DB) CreateCostEvent(e *models.CostEvent) error {
+	if e.ID == "" {
+		e.ID = uuid.NewString()
+	}
+	e.CreatedAt = time.Now()
+	_, err := d.Exec(`INSERT INTO cost_events (id, run_id, agent_id, input_tokens, output_tokens, total_cost_usd, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		e.ID, e.RunID, e.AgentID, e.InputTokens, e.OutputTokens, e.TotalCostUSD, e.CreatedAt)
+	return err
+}
+
+func (d *DB) GetAgentUsage(agentID string) (todayTokens int64, todayCost float64, totalTokens int64, totalCost float64, err error) {
+	err = d.QueryRow(`SELECT
+		COALESCE(SUM(CASE WHEN DATE(created_at)=DATE('now') THEN input_tokens+output_tokens ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN DATE(created_at)=DATE('now') THEN total_cost_usd ELSE 0 END), 0),
+		COALESCE(SUM(input_tokens+output_tokens), 0),
+		COALESCE(SUM(total_cost_usd), 0)
+		FROM cost_events WHERE agent_id=?`, agentID).Scan(&todayTokens, &todayCost, &totalTokens, &totalCost)
+	return
+}
+
+func (d *DB) GetTotalCostToday() (float64, error) {
+	var cost float64
+	err := d.QueryRow(`SELECT COALESCE(SUM(total_cost_usd), 0) FROM cost_events WHERE DATE(created_at)=DATE('now')`).Scan(&cost)
+	return cost, err
+}
+
+func (d *DB) GetBudgetPolicy(agentID string) (*models.BudgetPolicy, error) {
+	b := &models.BudgetPolicy{}
+	err := d.QueryRow(`SELECT id, agent_id, daily_token_limit, daily_cost_limit, active, created_at
+		FROM budget_policies WHERE agent_id=? AND active=1`, agentID).Scan(
+		&b.ID, &b.AgentID, &b.DailyTokenLimit, &b.DailyCostLimit, &b.Active, &b.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func (d *DB) IsAgentOverBudget(agentID string) (bool, error) {
+	policy, err := d.GetBudgetPolicy(agentID)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	todayTokens, todayCost, _, _, err := d.GetAgentUsage(agentID)
+	if err != nil {
+		return false, err
+	}
+
+	if policy.DailyTokenLimit > 0 && todayTokens >= policy.DailyTokenLimit {
+		return true, nil
+	}
+	if policy.DailyCostLimit > 0 && todayCost >= policy.DailyCostLimit {
+		return true, nil
+	}
+	return false, nil
+}
+
+// --- Activity ---
+
+func (d *DB) LogActivity(action, entityType, entityID string, agentID *string, details string) error {
+	_, err := d.Exec(`INSERT INTO activity_log (id, action, entity_type, entity_id, agent_id, details, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		uuid.NewString(), action, entityType, entityID, agentID, details, time.Now())
+	return err
+}
+
+// --- Dashboard ---
+
+func (d *DB) GetDashboardStats() (*models.DashboardStats, error) {
+	s := &models.DashboardStats{}
+	var err error
+
+	s.TotalAgents, s.ActiveAgents, err = d.CountAgents()
+	if err != nil {
+		return nil, fmt.Errorf("count agents: %w", err)
+	}
+
+	s.TotalIssues, s.OpenIssues, err = d.CountIssues()
+	if err != nil {
+		return nil, fmt.Errorf("count issues: %w", err)
+	}
+
+	s.RunningRuns, err = d.CountRunningRuns()
+	if err != nil {
+		return nil, fmt.Errorf("count runs: %w", err)
+	}
+
+	s.TotalCostToday, err = d.GetTotalCostToday()
+	if err != nil {
+		return nil, fmt.Errorf("cost today: %w", err)
+	}
+
+	return s, nil
+}
+
+// --- Labels ---
+
+func (d *DB) CreateLabel(l *models.Label) error {
+	if l.ID == "" {
+		l.ID = uuid.NewString()
+	}
+	_, err := d.Exec(`INSERT INTO labels (id, name, color) VALUES (?, ?, ?)`, l.ID, l.Name, l.Color)
+	return err
+}
+
+func (d *DB) ListLabels() ([]models.Label, error) {
+	rows, err := d.Query(`SELECT id, name, color FROM labels ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var labels []models.Label
+	for rows.Next() {
+		var l models.Label
+		if err := rows.Scan(&l.ID, &l.Name, &l.Color); err != nil {
+			return nil, err
+		}
+		labels = append(labels, l)
+	}
+	return labels, rows.Err()
+}
+
+func (d *DB) AddLabelToIssue(issueID, labelID string) error {
+	_, err := d.Exec(`INSERT OR IGNORE INTO issue_labels (issue_id, label_id) VALUES (?, ?)`, issueID, labelID)
+	return err
+}

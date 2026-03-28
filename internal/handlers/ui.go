@@ -1,0 +1,492 @@
+package handlers
+
+import (
+	"encoding/json"
+	"fmt"
+	"html/template"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/msoedov/thelastorg/internal/db"
+	"github.com/msoedov/thelastorg/internal/models"
+)
+
+type UI struct {
+	db    *db.DB
+	sse   *SSEHub
+	tmpl  *template.Template
+	wake  func(agent *models.Agent, issue *models.Issue)
+	sched interface {
+		WakeAgentHeartbeat(agent *models.Agent)
+	}
+}
+
+func NewUI(database *db.DB, sse *SSEHub, tmpl *template.Template, wake func(*models.Agent, *models.Issue), sched interface{ WakeAgentHeartbeat(*models.Agent) }) *UI {
+	return &UI{db: database, sse: sse, tmpl: tmpl, wake: wake, sched: sched}
+}
+
+func (u *UI) Dashboard(w http.ResponseWriter, r *http.Request) {
+	stats, _ := u.db.GetDashboardStats()
+	issues, _ := u.db.ListIssues("", 20)
+	agents, _ := u.db.ListAgents()
+	u.render(w, "dashboard", map[string]any{
+		"Stats":  stats,
+		"Issues": issues,
+		"Agents": agents,
+	})
+}
+
+func (u *UI) ListIssues(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		u.createIssueUI(w, r)
+		return
+	}
+	status := r.URL.Query().Get("status")
+	issues, _ := u.db.ListIssues(status, 100)
+	agents, _ := u.db.ListAgents()
+	u.render(w, "issues", map[string]any{
+		"Issues":        issues,
+		"Agents":        agents,
+		"CurrentStatus": status,
+	})
+}
+
+func (u *UI) createIssueUI(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	title := r.FormValue("title")
+	if title == "" {
+		http.Redirect(w, r, "/issues", http.StatusSeeOther)
+		return
+	}
+
+	key, _ := u.db.NextIssueKey()
+	issue := &models.Issue{
+		ID:          uuid.New().String(),
+		Key:         key,
+		Title:       title,
+		Description: r.FormValue("description"),
+		Status:      models.StatusTodo,
+	}
+
+	if p, err := strconv.Atoi(r.FormValue("priority")); err == nil {
+		issue.Priority = p
+	}
+
+	// Assign
+	assigneeSlug := r.FormValue("assignee_slug")
+	var assignee *models.Agent
+	if assigneeSlug != "" {
+		if a, err := u.db.GetAgentBySlug(assigneeSlug); err == nil {
+			issue.AssigneeAgentID = &a.ID
+			assignee = a
+		}
+	} else {
+		if ceo, err := u.db.GetCEOAgent(); err == nil {
+			issue.AssigneeAgentID = &ceo.ID
+			assignee = ceo
+		}
+	}
+
+	u.db.CreateIssue(issue)
+	u.db.LogActivity("create", "issue", key, nil, title)
+
+	if assignee != nil && u.wake != nil {
+		go u.wake(assignee, issue)
+	}
+
+	http.Redirect(w, r, "/issues/"+key, http.StatusSeeOther)
+}
+
+func (u *UI) IssueDetail(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+
+	if r.Method == http.MethodPost || r.Method == http.MethodPatch {
+		u.updateIssueUI(w, r, key)
+		return
+	}
+
+	issue, err := u.db.GetIssue(key)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	comments, _ := u.db.ListComments(key)
+	children, _ := u.db.GetChildIssues(key)
+	runs, _ := u.db.ListRunsForIssue(key)
+	agents, _ := u.db.ListAgents()
+
+	var assignee *models.Agent
+	if issue.AssigneeAgentID != nil {
+		assignee, _ = u.db.GetAgent(*issue.AssigneeAgentID)
+	}
+
+	u.render(w, "issue_detail", map[string]any{
+		"Issue":    issue,
+		"Assignee": assignee,
+		"Comments": comments,
+		"Children": children,
+		"Runs":     runs,
+		"Agents":   agents,
+	})
+}
+
+func (u *UI) updateIssueUI(w http.ResponseWriter, r *http.Request, key string) {
+	r.ParseForm()
+	issue, err := u.db.GetIssue(key)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	action := r.FormValue("action")
+	switch action {
+	case "restart":
+		issue.Status = models.StatusTodo
+		issue.StartedAt = nil
+		u.db.UpdateIssue(issue)
+		if issue.AssigneeAgentID != nil {
+			if a, err := u.db.GetAgent(*issue.AssigneeAgentID); err == nil && u.wake != nil {
+				go u.wake(a, issue)
+			}
+		}
+	case "cancel":
+		issue.Status = models.StatusCancelled
+		u.db.UpdateIssue(issue)
+	case "comment":
+		body := r.FormValue("body")
+		if body != "" {
+			comment := &models.Comment{
+				ID:       uuid.New().String(),
+				IssueKey: key,
+				Author:   "Board",
+				Body:     body,
+			}
+			u.db.CreateComment(comment)
+			data, _ := json.Marshal(map[string]string{"issue_key": key, "author": "Board", "body": body})
+			u.sse.Broadcast("comment", string(data))
+		}
+	case "assign":
+		slug := r.FormValue("assignee_slug")
+		if a, err := u.db.GetAgentBySlug(slug); err == nil {
+			issue.AssigneeAgentID = &a.ID
+			u.db.UpdateIssue(issue)
+			if u.wake != nil {
+				go u.wake(a, issue)
+			}
+		}
+	default:
+		if s := r.FormValue("status"); s != "" {
+			issue.Status = s
+		}
+		if t := r.FormValue("title"); t != "" {
+			issue.Title = t
+		}
+		if d := r.FormValue("description"); d != "" {
+			issue.Description = d
+		}
+		if p, err := strconv.Atoi(r.FormValue("priority")); err == nil {
+			issue.Priority = p
+		}
+		u.db.UpdateIssue(issue)
+	}
+
+	http.Redirect(w, r, "/issues/"+key, http.StatusSeeOther)
+}
+
+func (u *UI) ListAgents(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		u.createAgentUI(w, r)
+		return
+	}
+	agents, _ := u.db.ListAgents()
+	u.render(w, "agents", map[string]any{"Agents": agents})
+}
+
+func (u *UI) createAgentUI(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	name := r.FormValue("name")
+	if name == "" {
+		http.Redirect(w, r, "/agents", http.StatusSeeOther)
+		return
+	}
+
+	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+	agent := &models.Agent{
+		ID:            uuid.New().String(),
+		Name:          name,
+		Slug:          slug,
+		ArchetypeSlug: r.FormValue("archetype_slug"),
+		Model:         r.FormValue("model"),
+		WorkingDir:    r.FormValue("working_dir"),
+		MaxTurns:      50,
+		TimeoutSec:    600,
+		Active:        true,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
+	}
+	if agent.Model == "" {
+		agent.Model = "sonnet"
+	}
+	if agent.ArchetypeSlug == "" {
+		agent.ArchetypeSlug = "other"
+	}
+	if agent.WorkingDir == "" {
+		agent.WorkingDir = "."
+	}
+
+	if mt, err := strconv.Atoi(r.FormValue("max_turns")); err == nil && mt > 0 {
+		agent.MaxTurns = mt
+	}
+	if ts, err := strconv.Atoi(r.FormValue("timeout_sec")); err == nil && ts > 0 {
+		agent.TimeoutSec = ts
+	}
+	agent.HeartbeatEnabled = r.FormValue("heartbeat_enabled") == "on"
+	agent.ChromeEnabled = r.FormValue("chrome_enabled") == "on"
+
+	u.db.CreateAgent(agent)
+	http.Redirect(w, r, "/agents/"+slug, http.StatusSeeOther)
+}
+
+func (u *UI) AgentDetail(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+
+	if r.Method == http.MethodPost || r.Method == http.MethodPatch {
+		u.updateAgentUI(w, r, slug)
+		return
+	}
+
+	agent, err := u.db.GetAgentBySlug(slug)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	runs, _ := u.db.ListRunsForAgent(agent.ID, 20)
+	issues, _ := u.db.GetAgentInbox(agent.ID)
+	todayTokens, todayCost, totalTokens, totalCost, _ := u.db.GetAgentUsage(agent.ID)
+
+	u.render(w, "agent_detail", map[string]any{
+		"Agent":       agent,
+		"Runs":        runs,
+		"Issues":      issues,
+		"TodayTokens": todayTokens,
+		"TodayCost":   todayCost,
+		"TotalTokens": totalTokens,
+		"TotalCost":   totalCost,
+	})
+}
+
+func (u *UI) updateAgentUI(w http.ResponseWriter, r *http.Request, slug string) {
+	r.ParseForm()
+	agent, err := u.db.GetAgentBySlug(slug)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if name := r.FormValue("name"); name != "" {
+		agent.Name = name
+	}
+	if as := r.FormValue("archetype_slug"); as != "" {
+		agent.ArchetypeSlug = as
+	}
+	if m := r.FormValue("model"); m != "" {
+		agent.Model = m
+	}
+	if wd := r.FormValue("working_dir"); wd != "" {
+		agent.WorkingDir = wd
+	}
+	if mt, err := strconv.Atoi(r.FormValue("max_turns")); err == nil && mt > 0 {
+		agent.MaxTurns = mt
+	}
+	if ts, err := strconv.Atoi(r.FormValue("timeout_sec")); err == nil && ts > 0 {
+		agent.TimeoutSec = ts
+	}
+	agent.HeartbeatEnabled = r.FormValue("heartbeat_enabled") == "on"
+	agent.ChromeEnabled = r.FormValue("chrome_enabled") == "on"
+	agent.Active = r.FormValue("active") != "off"
+
+	u.db.UpdateAgent(agent)
+	http.Redirect(w, r, "/agents/"+slug, http.StatusSeeOther)
+}
+
+func (u *UI) AgentHeartbeat(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	agent, err := u.db.GetAgentBySlug(slug)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	u.sched.WakeAgentHeartbeat(agent)
+	http.Redirect(w, r, "/agents/"+slug, http.StatusSeeOther)
+}
+
+func (u *UI) AgentAssign(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	r.ParseForm()
+	issueKey := r.FormValue("issue_key")
+
+	agent, err := u.db.GetAgentBySlug(slug)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	issue, err := u.db.GetIssue(issueKey)
+	if err != nil {
+		http.Error(w, "issue not found", http.StatusBadRequest)
+		return
+	}
+
+	issue.AssigneeAgentID = &agent.ID
+	u.db.UpdateIssue(issue)
+
+	if u.wake != nil {
+		go u.wake(agent, issue)
+	}
+
+	http.Redirect(w, r, "/agents/"+slug, http.StatusSeeOther)
+}
+
+func (u *UI) RunDetail(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	run, err := u.db.GetRun(id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	agent, _ := u.db.GetAgent(run.AgentID)
+	u.render(w, "run_detail", map[string]any{
+		"Run":   run,
+		"Agent": agent,
+	})
+}
+
+func (u *UI) RunStdout(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	run, err := u.db.GetRun(id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// If run is finished, send 286 to tell HTMX to stop polling
+	if run.Status != models.RunStatusRunning {
+		w.Header().Set("HX-Trigger", "run-complete")
+		w.WriteHeader(286)
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprint(w, formatStreamJSON(run.Stdout, run.Status))
+}
+
+func (u *UI) SearchIssuesAndAgents(w http.ResponseWriter, r *http.Request) {
+	q := strings.ToLower(r.URL.Query().Get("q"))
+	if q == "" {
+		jsonOK(w, []any{})
+		return
+	}
+
+	var results []map[string]string
+
+	issues, _ := u.db.ListIssues("", 50)
+	for _, i := range issues {
+		if strings.Contains(strings.ToLower(i.Title), q) || strings.Contains(strings.ToLower(i.Key), q) {
+			results = append(results, map[string]string{
+				"type":  "issue",
+				"key":   i.Key,
+				"title": i.Title,
+				"url":   "/issues/" + i.Key,
+			})
+		}
+	}
+
+	agents, _ := u.db.ListAgents()
+	for _, a := range agents {
+		if strings.Contains(strings.ToLower(a.Name), q) || strings.Contains(strings.ToLower(a.Slug), q) {
+			results = append(results, map[string]string{
+				"type": "agent",
+				"key":  a.Slug,
+				"title": a.Name,
+				"url":  "/agents/" + a.Slug,
+			})
+		}
+	}
+
+	jsonOK(w, results)
+}
+
+func (u *UI) render(w http.ResponseWriter, name string, data any) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := u.tmpl.ExecuteTemplate(w, name, data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func formatStreamJSON(stdout, runStatus string) string {
+	if stdout == "" {
+		if runStatus == models.RunStatusRunning {
+			return `<div class="flex items-center gap-2 text-zinc-400"><span class="animate-pulse">●</span> Agent is running...</div>`
+		}
+		return `<div class="text-zinc-500">No output yet.</div>`
+	}
+
+	var b strings.Builder
+	b.WriteString(`<div class="space-y-2 font-mono text-sm" id="stdout-content">`)
+
+	for _, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "{") {
+			b.WriteString(fmt.Sprintf(`<div class="text-zinc-300 whitespace-pre-wrap">%s</div>`, template.HTMLEscapeString(line)))
+			continue
+		}
+
+		var msg map[string]any
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			b.WriteString(fmt.Sprintf(`<div class="text-zinc-300 whitespace-pre-wrap">%s</div>`, template.HTMLEscapeString(line)))
+			continue
+		}
+
+		msgType, _ := msg["type"].(string)
+		switch msgType {
+		case "assistant":
+			if content, ok := msg["message"].(map[string]any); ok {
+				if blocks, ok := content["content"].([]any); ok {
+					for _, block := range blocks {
+						if bm, ok := block.(map[string]any); ok {
+							if bm["type"] == "text" {
+								text, _ := bm["text"].(string)
+								b.WriteString(fmt.Sprintf(`<div class="border-l-2 border-indigo-500 pl-3 py-1 text-zinc-200 whitespace-pre-wrap">%s</div>`, template.HTMLEscapeString(text)))
+							} else if bm["type"] == "tool_use" {
+								name, _ := bm["name"].(string)
+								input, _ := json.MarshalIndent(bm["input"], "", "  ")
+								b.WriteString(fmt.Sprintf(`<details class="border border-zinc-700 rounded p-2"><summary class="cursor-pointer text-blue-400 font-medium">Tool: %s</summary><pre class="mt-2 text-xs text-zinc-400 overflow-x-auto">%s</pre></details>`, template.HTMLEscapeString(name), template.HTMLEscapeString(string(input))))
+							}
+						}
+					}
+				}
+			}
+		case "tool_result":
+			// skip verbose tool results in formatted view
+		case "result":
+			if result, ok := msg["result"].(map[string]any); ok {
+				cost, _ := result["total_cost_usd"].(float64)
+				inputT, _ := result["input_tokens"].(float64)
+				outputT, _ := result["output_tokens"].(float64)
+				dur, _ := result["duration_ms"].(float64)
+				b.WriteString(fmt.Sprintf(`<div class="mt-4 pt-3 border-t border-zinc-700 text-xs text-zinc-500 flex gap-4"><span>Cost: $%.4f</span><span>In: %.0f</span><span>Out: %.0f</span><span>Duration: %.1fs</span></div>`, cost, inputT, outputT, dur/1000))
+			}
+		}
+	}
+
+	if runStatus == models.RunStatusRunning {
+		b.WriteString(`<div class="flex items-center gap-2 text-emerald-400 mt-2"><span class="animate-pulse">●</span> Running...</div>`)
+	}
+
+	b.WriteString(`</div>`)
+	return b.String()
+}

@@ -1,0 +1,66 @@
+{{template "head" .}}
+{{template "nav" .}}
+<main class="flex-1 ml-56 p-6">
+<div class="max-w-6xl">
+  <h2 class="text-lg font-semibold text-zinc-100 mb-5">Dashboard</h2>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+    <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+      <div class="text-xs text-zinc-500 uppercase tracking-wide">Agents</div>
+      <div class="text-2xl font-semibold text-zinc-100 mt-1">{{.Stats.ActiveAgents}}<span class="text-sm text-zinc-500 font-normal">/{{.Stats.TotalAgents}}</span></div>
+    </div>
+    <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+      <div class="text-xs text-zinc-500 uppercase tracking-wide">Open Issues</div>
+      <div class="text-2xl font-semibold text-zinc-100 mt-1">{{.Stats.OpenIssues}}<span class="text-sm text-zinc-500 font-normal">/{{.Stats.TotalIssues}}</span></div>
+    </div>
+    <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+      <div class="text-xs text-zinc-500 uppercase tracking-wide">Running</div>
+      <div class="text-2xl font-semibold text-blue-400 mt-1">{{.Stats.RunningRuns}}</div>
+    </div>
+    <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+      <div class="text-xs text-zinc-500 uppercase tracking-wide">Cost Today</div>
+      <div class="text-2xl font-semibold text-zinc-100 mt-1">{{formatCost .Stats.TotalCostToday}}</div>
+    </div>
+  </div>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div class="lg:col-span-2">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-medium text-zinc-300">Recent Issues</h3>
+        <a href="/issues" class="text-xs text-zinc-500 hover:text-zinc-300">View all</a>
+      </div>
+      <div class="bg-zinc-900 border border-zinc-800 rounded-lg divide-y divide-zinc-800">
+        {{range .Issues}}
+        <a href="/issues/{{.Key}}" class="flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800/50 transition-colors">
+          <span class="w-2 h-2 rounded-full {{statusDot .Status}}">&#9679;</span>
+          <span class="font-mono text-xs text-zinc-500 w-16">{{.Key}}</span>
+          <span class="text-sm text-zinc-200 flex-1 truncate">{{.Title}}</span>
+          {{if .AssigneeName}}<span class="text-xs text-zinc-500">{{.AssigneeName}}</span>{{end}}
+          <span class="text-xs text-zinc-600">{{timeAgo .CreatedAt}}</span>
+        </a>
+        {{else}}
+        <div class="px-4 py-8 text-center text-sm text-zinc-500">No issues yet. Create one to get started.</div>
+        {{end}}
+      </div>
+    </div>
+    <div>
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-medium text-zinc-300">Agents</h3>
+        <a href="/agents" class="text-xs text-zinc-500 hover:text-zinc-300">Manage</a>
+      </div>
+      <div class="bg-zinc-900 border border-zinc-800 rounded-lg divide-y divide-zinc-800">
+        {{range .Agents}}
+        <a href="/agents/{{.Slug}}" class="flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800/50 transition-colors">
+          <span class="w-2 h-2 rounded-full {{if .Active}}text-emerald-400{{else}}text-zinc-600{{end}}">&#9679;</span>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm text-zinc-200 truncate">{{.Name}}</div>
+            <div class="text-xs text-zinc-500">{{.ArchetypeSlug}} &middot; {{.Model}}</div>
+          </div>
+        </a>
+        {{else}}
+        <div class="px-4 py-8 text-center text-sm text-zinc-500">No agents configured.</div>
+        {{end}}
+      </div>
+    </div>
+  </div>
+</div>
+</main>
+{{template "foot" .}}

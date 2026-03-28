@@ -1,0 +1,52 @@
+{{template "head" .}}
+{{template "nav" .}}
+<main class="flex-1 ml-56 p-6">
+<div class="max-w-5xl">
+  <div class="flex items-center justify-between mb-5">
+    <h2 class="text-lg font-semibold text-zinc-100">Agents</h2>
+  </div>
+  <details class="bg-zinc-900 border border-zinc-800 rounded-lg mb-4">
+    <summary class="px-4 py-2.5 text-sm text-zinc-400 cursor-pointer hover:text-zinc-200">+ New Agent</summary>
+    <form method="POST" action="/agents" class="p-4 pt-2 border-t border-zinc-800">
+      <div class="grid grid-cols-2 gap-3 mb-3">
+        <div><label class="text-xs text-zinc-500 block mb-1">Name</label>
+          <input name="name" required class="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-100 outline-none focus:border-zinc-600"></div>
+        <div><label class="text-xs text-zinc-500 block mb-1">Archetype</label>
+          <select name="archetype_slug" class="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-300 outline-none">
+            <option value="ceo">CEO</option><option value="fullstack" selected>Fullstack</option><option value="backend">Backend</option><option value="frontend">Frontend</option>
+            <option value="architect">Architect</option><option value="devops">DevOps</option><option value="qa">QA</option><option value="designer">Designer</option>
+            <option value="product">Product</option><option value="marketing">Marketing</option><option value="auditor">Auditor</option><option value="other">Other</option>
+          </select></div>
+        <div><label class="text-xs text-zinc-500 block mb-1">Model</label>
+          <select name="model" class="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-300 outline-none">
+            <option value="sonnet">Sonnet</option><option value="opus">Opus</option><option value="haiku">Haiku</option>
+          </select></div>
+        <div><label class="text-xs text-zinc-500 block mb-1">Working Dir</label>
+          <input name="working_dir" placeholder="." class="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-100 outline-none focus:border-zinc-600"></div>
+      </div>
+      <div class="flex items-center gap-4 mb-3">
+        <label class="flex items-center gap-2 text-xs text-zinc-400"><input type="checkbox" name="heartbeat_enabled"> Heartbeat</label>
+        <label class="flex items-center gap-2 text-xs text-zinc-400"><input type="checkbox" name="chrome_enabled"> Chrome</label>
+      </div>
+      <button type="submit" class="bg-indigo-600 hover:bg-indigo-500 text-white text-sm px-4 py-1.5 rounded transition-colors">Create Agent</button>
+    </form>
+  </details>
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+    {{range .Agents}}
+    <a href="/agents/{{.Slug}}" class="bg-zinc-900 border border-zinc-800 rounded-lg p-4 hover:border-zinc-700 transition-colors">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="w-2 h-2 rounded-full {{if .Active}}text-emerald-400{{else}}text-zinc-600{{end}}">&#9679;</span>
+        <span class="text-sm font-medium text-zinc-200">{{.Name}}</span>
+      </div>
+      <div class="flex items-center gap-2 text-xs text-zinc-500">
+        <span class="bg-zinc-800 px-1.5 py-0.5 rounded">{{.ArchetypeSlug}}</span>
+        <span>{{.Model}}</span>
+        {{if .HeartbeatEnabled}}<span class="text-blue-400">heartbeat</span>{{end}}
+        {{if .ChromeEnabled}}<span class="text-amber-400">chrome</span>{{end}}
+      </div>
+    </a>
+    {{end}}
+  </div>
+</div>
+</main>
+{{template "foot" .}}
