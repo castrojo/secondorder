@@ -1,51 +1,82 @@
 {{template "head" .}}
 {{template "nav" .}}
-<main class="flex-1 ml-56 p-6">
-<div class="max-w-5xl">
-  <div class="flex items-center justify-between mb-5">
-    <h2 class="text-lg font-semibold text-zinc-100">Issues</h2>
-  </div>
-  <div class="flex gap-1 mb-4 border-b border-zinc-800 pb-2">
-    <a href="/issues" class="px-3 py-1 text-xs rounded {{if eq .CurrentStatus ""}}bg-zinc-800 text-zinc-200{{else}}text-zinc-500 hover:text-zinc-300{{end}}">All</a>
-    <a href="/issues?status=todo" class="px-3 py-1 text-xs rounded {{if eq .CurrentStatus "todo"}}bg-zinc-800 text-zinc-200{{else}}text-zinc-500 hover:text-zinc-300{{end}}">Todo</a>
-    <a href="/issues?status=in_progress" class="px-3 py-1 text-xs rounded {{if eq .CurrentStatus "in_progress"}}bg-zinc-800 text-zinc-200{{else}}text-zinc-500 hover:text-zinc-300{{end}}">In Progress</a>
-    <a href="/issues?status=in_review" class="px-3 py-1 text-xs rounded {{if eq .CurrentStatus "in_review"}}bg-zinc-800 text-zinc-200{{else}}text-zinc-500 hover:text-zinc-300{{end}}">Review</a>
-    <a href="/issues?status=done" class="px-3 py-1 text-xs rounded {{if eq .CurrentStatus "done"}}bg-zinc-800 text-zinc-200{{else}}text-zinc-500 hover:text-zinc-300{{end}}">Done</a>
-    <a href="/issues?status=blocked" class="px-3 py-1 text-xs rounded {{if eq .CurrentStatus "blocked"}}bg-zinc-800 text-zinc-200{{else}}text-zinc-500 hover:text-zinc-300{{end}}">Blocked</a>
-  </div>
-  <form method="POST" action="/issues" class="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-4">
-    <div class="flex gap-3">
-      <input name="title" type="text" placeholder="New issue title..." required class="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none focus:border-zinc-600">
-      <select name="assignee_slug" class="bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-300 outline-none">
-        <option value="">Auto (CEO)</option>
-        {{range .Agents}}<option value="{{.Slug}}">{{.Name}}</option>{{end}}
-      </select>
-      <select name="priority" class="bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-300 outline-none">
-        <option value="0">No priority</option>
-        <option value="1">Low</option>
-        <option value="2">Medium</option>
-        <option value="3">High</option>
-        <option value="4">Urgent</option>
-      </select>
-      <button type="submit" class="bg-indigo-600 hover:bg-indigo-500 text-white text-sm px-4 py-1.5 rounded transition-colors">Create</button>
+<main class="flex-1 ml-56 p-8">
+  <div class="max-w-6xl mx-auto">
+
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-lg font-semibold text-zinc-100 tracking-tight">Issues</h1>
+      <button onclick="document.getElementById('new-issue').classList.toggle('hidden')" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition-colors">
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+        New Issue
+      </button>
     </div>
-  </form>
-  <div class="bg-zinc-900 border border-zinc-800 rounded-lg divide-y divide-zinc-800">
-    {{range .Issues}}
-    <a href="/issues/{{.Key}}" class="flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800/50 transition-colors">
-      <span class="{{statusDot .Status}}">&#9679;</span>
-      <span class="font-mono text-xs text-zinc-500 w-16">{{.Key}}</span>
-      {{if gt .Priority 0}}<span class="text-xs {{priorityColor .Priority}}">{{priorityLabel .Priority}}</span>{{end}}
-      <span class="text-sm text-zinc-200 flex-1 truncate">{{.Title}}</span>
-      {{if .ParentIssueKey}}<span class="text-xs text-zinc-600 font-mono">^{{deref .ParentIssueKey}}</span>{{end}}
-      {{if .AssigneeName}}<span class="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">{{.AssigneeName}}</span>{{end}}
-      <span class="px-2 py-0.5 rounded text-xs {{statusColor .Status}}">{{.Status}}</span>
-      <span class="text-xs text-zinc-600">{{timeAgo .CreatedAt}}</span>
-    </a>
-    {{else}}
-    <div class="px-4 py-12 text-center text-sm text-zinc-500">No issues found.</div>
-    {{end}}
+
+    <!-- Create Form -->
+    <div id="new-issue" class="hidden mb-5">
+      <form method="POST" action="/issues" class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-5 space-y-4">
+        <div>
+          <label class="block text-[11px] font-medium text-zinc-500 uppercase tracking-wider mb-1.5">Title</label>
+          <input name="title" type="text" required placeholder="What needs to be done?" class="w-full bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow">
+        </div>
+        <div>
+          <label class="block text-[11px] font-medium text-zinc-500 uppercase tracking-wider mb-1.5">Description</label>
+          <textarea name="description" rows="3" placeholder="Add details..." class="w-full bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-1 focus:ring-indigo-500 resize-none transition-shadow"></textarea>
+        </div>
+        <div class="flex items-end gap-3">
+          <div class="flex-1">
+            <label class="block text-[11px] font-medium text-zinc-500 uppercase tracking-wider mb-1.5">Assignee</label>
+            <select name="assignee_slug" class="w-full bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-indigo-500">
+              <option value="">Auto (CEO)</option>
+              {{range .Agents}}<option value="{{.Slug}}">{{.Name}}</option>{{end}}
+            </select>
+          </div>
+          <div class="w-36">
+            <label class="block text-[11px] font-medium text-zinc-500 uppercase tracking-wider mb-1.5">Priority</label>
+            <select name="priority" class="w-full bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-indigo-500">
+              <option value="0">None</option>
+              <option value="1">Low</option>
+              <option value="2">Medium</option>
+              <option value="3">High</option>
+              <option value="4">Urgent</option>
+            </select>
+          </div>
+          <button type="submit" class="px-5 py-2 rounded-md text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition-colors">Create</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Status Tabs -->
+    <div class="flex gap-1 mb-4 border-b border-zinc-800 pb-3">
+      {{$cs := .CurrentStatus}}
+      <a href="/issues" class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors {{if eq $cs ""}}bg-zinc-800 text-zinc-200{{else}}text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50{{end}}">All</a>
+      <a href="/issues?status=todo" class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors {{if eq $cs "todo"}}bg-zinc-800 text-zinc-200{{else}}text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50{{end}}">Todo</a>
+      <a href="/issues?status=in_progress" class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors {{if eq $cs "in_progress"}}bg-zinc-800 text-zinc-200{{else}}text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50{{end}}">In Progress</a>
+      <a href="/issues?status=in_review" class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors {{if eq $cs "in_review"}}bg-zinc-800 text-zinc-200{{else}}text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50{{end}}">Review</a>
+      <a href="/issues?status=done" class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors {{if eq $cs "done"}}bg-zinc-800 text-zinc-200{{else}}text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50{{end}}">Done</a>
+      <a href="/issues?status=blocked" class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors {{if eq $cs "blocked"}}bg-zinc-800 text-zinc-200{{else}}text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50{{end}}">Blocked</a>
+    </div>
+
+    <!-- Issue List -->
+    <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg divide-y divide-zinc-800/60 overflow-hidden">
+      {{range .Issues}}
+      <a href="/issues/{{.Key}}" class="flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800/40 transition-colors group">
+        <span class="{{statusColor .Status}} inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0">{{statusIcon .Status}}</span>
+        <span class="font-mono text-xs text-zinc-500 w-14 shrink-0 group-hover:text-indigo-400 transition-colors">{{.Key}}</span>
+        {{if gt .Priority 0}}<span class="text-[11px] {{priorityColor .Priority}} shrink-0">{{priorityLabel .Priority}}</span>{{end}}
+        <span class="text-[13px] text-zinc-200 flex-1 truncate">{{.Title}}</span>
+        {{if .ParentIssueKey}}<span class="text-[11px] text-zinc-600 font-mono shrink-0">^{{deref .ParentIssueKey}}</span>{{end}}
+        {{if .AssigneeName}}<span class="text-[11px] text-zinc-500 bg-zinc-800/80 px-2 py-0.5 rounded shrink-0">{{.AssigneeName}}</span>{{end}}
+        <span class="px-2 py-0.5 rounded text-[11px] font-medium {{statusColor .Status}} shrink-0">{{.Status}}</span>
+        <span class="text-[11px] text-zinc-600 shrink-0 tabular-nums">{{timeAgo .CreatedAt}}</span>
+      </a>
+      {{else}}
+      <div class="px-4 py-16 text-center">
+        <svg class="w-8 h-8 mx-auto text-zinc-700 mb-2" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        <p class="text-sm text-zinc-500">No issues found</p>
+      </div>
+      {{end}}
+    </div>
+
   </div>
-</div>
 </main>
 {{template "foot" .}}

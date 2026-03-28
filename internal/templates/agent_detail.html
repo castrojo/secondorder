@@ -1,106 +1,169 @@
 {{template "head" .}}
 {{template "nav" .}}
-<main class="flex-1 ml-56 p-6">
-<div class="max-w-5xl">
-  <div class="flex items-center gap-2 mb-1">
-    <a href="/agents" class="text-xs text-zinc-500 hover:text-zinc-300">Agents</a>
-    <span class="text-xs text-zinc-600">/</span>
-    <span class="text-xs text-zinc-400">{{.Agent.Slug}}</span>
-  </div>
-  <div class="flex gap-6 mt-4">
-    <div class="flex-1 min-w-0">
-      <div class="flex items-center gap-3 mb-6">
-        <h2 class="text-xl font-semibold text-zinc-100">{{.Agent.Name}}</h2>
-        <span class="px-2 py-0.5 rounded text-xs bg-zinc-800 text-zinc-400">{{.Agent.ArchetypeSlug}}</span>
-        <span class="w-2 h-2 rounded-full {{if .Agent.Active}}text-emerald-400{{else}}text-zinc-600{{end}}">&#9679;</span>
-      </div>
-      <div class="grid grid-cols-4 gap-3 mb-6">
-        <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
-          <div class="text-xs text-zinc-500">Today Tokens</div>
-          <div class="text-lg font-semibold text-zinc-100 mt-0.5">{{formatTokens .TodayTokens}}</div>
-        </div>
-        <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
-          <div class="text-xs text-zinc-500">Today Cost</div>
-          <div class="text-lg font-semibold text-zinc-100 mt-0.5">{{formatCost .TodayCost}}</div>
-        </div>
-        <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
-          <div class="text-xs text-zinc-500">Total Tokens</div>
-          <div class="text-lg font-semibold text-zinc-100 mt-0.5">{{formatTokens .TotalTokens}}</div>
-        </div>
-        <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
-          <div class="text-xs text-zinc-500">Total Cost</div>
-          <div class="text-lg font-semibold text-zinc-100 mt-0.5">{{formatCost .TotalCost}}</div>
-        </div>
-      </div>
+<main class="flex-1 ml-56 p-8">
+  <div class="max-w-6xl mx-auto">
 
-      {{if .Issues}}
-      <div class="mb-6">
-        <h3 class="text-sm font-medium text-zinc-300 mb-2">Inbox</h3>
-        <div class="bg-zinc-900 border border-zinc-800 rounded-lg divide-y divide-zinc-800">
-          {{range .Issues}}
-          <a href="/issues/{{.Key}}" class="flex items-center gap-3 px-4 py-2 hover:bg-zinc-800/50 transition-colors">
-            <span class="{{statusDot .Status}}">&#9679;</span>
-            <span class="font-mono text-xs text-zinc-500">{{.Key}}</span>
-            <span class="text-sm text-zinc-200 flex-1 truncate">{{.Title}}</span>
-            <span class="px-2 py-0.5 rounded text-xs {{statusColor .Status}}">{{.Status}}</span>
-          </a>
-          {{end}}
-        </div>
-      </div>
-      {{end}}
-
-      {{if .Runs}}
-      <div>
-        <h3 class="text-sm font-medium text-zinc-300 mb-2">Recent Runs</h3>
-        <div class="bg-zinc-900 border border-zinc-800 rounded-lg divide-y divide-zinc-800">
-          {{range .Runs}}
-          <a href="/runs/{{.ID}}" class="flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800/50 transition-colors">
-            <span class="{{runStatusColor .Status}}">&#9679;</span>
-            <span class="font-mono text-xs text-zinc-400">{{truncate .ID 8}}</span>
-            <span class="text-xs text-zinc-500">{{.Mode}}</span>
-            {{if .IssueKey}}<span class="font-mono text-xs text-zinc-500">{{deref .IssueKey}}</span>{{end}}
-            <span class="flex-1"></span>
-            <span class="text-xs text-zinc-500">{{formatCost .TotalCostUSD}}</span>
-            <span class="text-xs text-zinc-600">{{timeAgo .StartedAt}}</span>
-          </a>
-          {{end}}
-        </div>
-      </div>
-      {{end}}
+    <div class="flex items-center gap-1.5 mb-5 text-xs">
+      <a href="/agents" class="text-zinc-500 hover:text-zinc-300 transition-colors">Agents</a>
+      <span class="text-zinc-700">/</span>
+      <span class="text-zinc-400 font-mono">{{.Agent.Slug}}</span>
     </div>
 
-    <div class="w-56 flex-shrink-0 space-y-4">
-      <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-3 space-y-2 text-xs">
-        <div class="flex justify-between"><span class="text-zinc-500">Model</span><span class="text-zinc-300">{{.Agent.Model}}</span></div>
-        <div class="flex justify-between"><span class="text-zinc-500">Max turns</span><span class="text-zinc-300">{{.Agent.MaxTurns}}</span></div>
-        <div class="flex justify-between"><span class="text-zinc-500">Timeout</span><span class="text-zinc-300">{{.Agent.TimeoutSec}}s</span></div>
-        <div class="flex justify-between"><span class="text-zinc-500">Working dir</span><span class="text-zinc-300 truncate max-w-24" title="{{.Agent.WorkingDir}}">{{.Agent.WorkingDir}}</span></div>
-        <div class="flex justify-between"><span class="text-zinc-500">Heartbeat</span><span class="text-zinc-300">{{if .Agent.HeartbeatEnabled}}on{{else}}off{{end}}</span></div>
-        <div class="flex justify-between"><span class="text-zinc-500">Chrome</span><span class="text-zinc-300">{{if .Agent.ChromeEnabled}}on{{else}}off{{end}}</span></div>
-      </div>
-      <form method="POST" action="/agents/{{.Agent.Slug}}/heartbeat">
-        <button type="submit" class="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs px-3 py-1.5 rounded transition-colors">Trigger Heartbeat</button>
-      </form>
-      <details class="bg-zinc-900 border border-zinc-800 rounded-lg">
-        <summary class="px-3 py-2 text-xs text-zinc-400 cursor-pointer">Edit Config</summary>
-        <form method="POST" action="/agents/{{.Agent.Slug}}" class="p-3 pt-0 space-y-2 border-t border-zinc-800 mt-1">
-          <div><label class="text-xs text-zinc-500">Model</label>
-            <select name="model" class="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-300 outline-none">
-              <option value="sonnet" {{if eq .Agent.Model "sonnet"}}selected{{end}}>Sonnet</option>
-              <option value="opus" {{if eq .Agent.Model "opus"}}selected{{end}}>Opus</option>
-              <option value="haiku" {{if eq .Agent.Model "haiku"}}selected{{end}}>Haiku</option>
-            </select></div>
-          <div><label class="text-xs text-zinc-500">Working Dir</label>
-            <input name="working_dir" value="{{.Agent.WorkingDir}}" class="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-100 outline-none"></div>
-          <div class="flex items-center gap-3">
-            <label class="flex items-center gap-1 text-xs text-zinc-400"><input type="checkbox" name="heartbeat_enabled" {{if .Agent.HeartbeatEnabled}}checked{{end}}> Heartbeat</label>
-            <label class="flex items-center gap-1 text-xs text-zinc-400"><input type="checkbox" name="chrome_enabled" {{if .Agent.ChromeEnabled}}checked{{end}}> Chrome</label>
+    <div class="flex gap-6">
+      <div class="flex-1 min-w-0 space-y-6">
+
+        <!-- Header -->
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center text-sm font-semibold text-indigo-400 uppercase">{{printf "%.2s" .Agent.Name}}</div>
+          <div>
+            <div class="flex items-center gap-2.5">
+              <h1 class="text-xl font-semibold text-zinc-100">{{.Agent.Name}}</h1>
+              <span class="px-2 py-0.5 rounded text-[11px] bg-zinc-800 text-zinc-400">{{.Agent.ArchetypeSlug}}</span>
+              <div class="w-2 h-2 rounded-full {{if .Agent.Active}}bg-emerald-400{{else}}bg-zinc-600{{end}}"></div>
+            </div>
+            <div class="text-xs text-zinc-500 mt-0.5 font-mono">{{.Agent.Slug}}</div>
           </div>
-          <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-3 py-1.5 rounded transition-colors">Save</button>
+        </div>
+
+        <!-- Usage -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3">
+            <div class="text-[11px] text-zinc-500 uppercase tracking-wider">Today Tokens</div>
+            <div class="text-lg font-semibold text-zinc-100 mt-1 tabular-nums">{{formatTokens .TodayTokens}}</div>
+          </div>
+          <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3">
+            <div class="text-[11px] text-zinc-500 uppercase tracking-wider">Today Cost</div>
+            <div class="text-lg font-semibold text-zinc-100 mt-1 tabular-nums">{{formatCost .TodayCost}}</div>
+          </div>
+          <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3">
+            <div class="text-[11px] text-zinc-500 uppercase tracking-wider">Total Tokens</div>
+            <div class="text-lg font-semibold text-zinc-100 mt-1 tabular-nums">{{formatTokens .TotalTokens}}</div>
+          </div>
+          <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3">
+            <div class="text-[11px] text-zinc-500 uppercase tracking-wider">Total Cost</div>
+            <div class="text-lg font-semibold text-zinc-100 mt-1 tabular-nums">{{formatCost .TotalCost}}</div>
+          </div>
+        </div>
+
+        <!-- Inbox -->
+        {{if .Issues}}
+        <div>
+          <h3 class="text-[13px] font-medium text-zinc-300 mb-2">Inbox</h3>
+          <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg divide-y divide-zinc-800/60 overflow-hidden">
+            {{range .Issues}}
+            <a href="/issues/{{.Key}}" class="flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800/40 transition-colors">
+              <span class="{{statusColor .Status}} inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0">{{statusIcon .Status}}</span>
+              <span class="font-mono text-xs text-zinc-500 w-14 shrink-0">{{.Key}}</span>
+              <span class="text-[13px] text-zinc-200 flex-1 truncate">{{.Title}}</span>
+              <span class="text-[11px] {{priorityColor .Priority}} shrink-0">{{priorityLabel .Priority}}</span>
+            </a>
+            {{end}}
+          </div>
+        </div>
+        {{end}}
+
+        <!-- Assign -->
+        <form method="POST" action="/agents/{{.Agent.Slug}}/assign" class="flex items-center gap-2">
+          <select name="issue_key" required class="flex-1 bg-zinc-900 border border-zinc-700 rounded-md px-3 py-1.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-indigo-500">
+            <option value="">Assign an issue...</option>
+            {{range .Issues}}<option value="{{.Key}}">{{.Key}}: {{.Title}}</option>{{end}}
+          </select>
+          <button type="submit" class="px-3 py-1.5 rounded-md text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition-colors">Assign</button>
         </form>
-      </details>
+
+        <!-- Runs -->
+        {{if .Runs}}
+        <div>
+          <h3 class="text-[13px] font-medium text-zinc-300 mb-2">Recent Runs</h3>
+          <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg divide-y divide-zinc-800/60 overflow-hidden">
+            {{range .Runs}}
+            <a href="/runs/{{.ID}}" class="flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800/40 transition-colors">
+              <span class="{{runStatusColor .Status}} inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium shrink-0">{{.Status}}</span>
+              <span class="font-mono text-xs text-zinc-400 shrink-0">{{truncate .ID 8}}</span>
+              <span class="text-xs text-zinc-500">{{.Mode}}</span>
+              {{if .IssueKey}}<span class="font-mono text-xs text-zinc-500">{{deref .IssueKey}}</span>{{end}}
+              <span class="flex-1"></span>
+              <span class="text-xs text-zinc-500 tabular-nums">{{formatCost .TotalCostUSD}}</span>
+              <span class="text-[11px] text-zinc-600 tabular-nums">{{timeAgo .StartedAt}}</span>
+            </a>
+            {{end}}
+          </div>
+        </div>
+        {{end}}
+      </div>
+
+      <!-- Sidebar -->
+      <div class="w-56 shrink-0 space-y-3">
+        <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3 space-y-2.5 text-xs">
+          <div class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider mb-1">Config</div>
+          <div class="flex justify-between"><span class="text-zinc-500">Model</span><span class="text-zinc-300 font-mono">{{.Agent.Model}}</span></div>
+          <div class="flex justify-between"><span class="text-zinc-500">Max turns</span><span class="text-zinc-300">{{.Agent.MaxTurns}}</span></div>
+          <div class="flex justify-between"><span class="text-zinc-500">Timeout</span><span class="text-zinc-300">{{.Agent.TimeoutSec}}s</span></div>
+          <div class="flex justify-between gap-2"><span class="text-zinc-500 shrink-0">Working dir</span><span class="text-zinc-300 truncate font-mono" title="{{.Agent.WorkingDir}}">{{.Agent.WorkingDir}}</span></div>
+          <div class="flex justify-between"><span class="text-zinc-500">Heartbeat</span>
+            {{if .Agent.HeartbeatEnabled}}<span class="text-emerald-400">on</span>{{else}}<span class="text-zinc-600">off</span>{{end}}
+          </div>
+          <div class="flex justify-between"><span class="text-zinc-500">Chrome</span>
+            {{if .Agent.ChromeEnabled}}<span class="text-blue-400">on</span>{{else}}<span class="text-zinc-600">off</span>{{end}}
+          </div>
+        </div>
+
+        {{if .Agent.HeartbeatEnabled}}
+        <form method="POST" action="/agents/{{.Agent.Slug}}/heartbeat">
+          <button type="submit" class="w-full flex items-center justify-center gap-1.5 bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 text-zinc-300 text-xs px-3 py-2 rounded-md transition-colors">
+            <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z"/></svg>
+            Trigger Heartbeat
+          </button>
+        </form>
+        {{end}}
+
+        <details class="bg-zinc-800/50 border border-zinc-800 rounded-lg">
+          <summary class="flex items-center gap-2 px-3 py-2.5 text-xs text-zinc-400 cursor-pointer hover:text-zinc-300 transition-colors">
+            <svg class="w-3.5 h-3.5 text-zinc-600 transition-transform chev shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+            Edit Config
+          </summary>
+          <form method="POST" action="/agents/{{.Agent.Slug}}" class="p-3 pt-0 space-y-2 border-t border-zinc-800 mt-1">
+            <div>
+              <label class="text-[11px] text-zinc-500">Name</label>
+              <input name="name" value="{{.Agent.Name}}" class="w-full bg-zinc-900 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-100 outline-none focus:ring-1 focus:ring-indigo-500">
+            </div>
+            <div>
+              <label class="text-[11px] text-zinc-500">Model</label>
+              <select name="model" class="w-full bg-zinc-900 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-indigo-500">
+                <option value="sonnet" {{if eq .Agent.Model "sonnet"}}selected{{end}}>Sonnet</option>
+                <option value="opus" {{if eq .Agent.Model "opus"}}selected{{end}}>Opus</option>
+                <option value="haiku" {{if eq .Agent.Model "haiku"}}selected{{end}}>Haiku</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[11px] text-zinc-500">Working Dir</label>
+              <input name="working_dir" value="{{.Agent.WorkingDir}}" class="w-full bg-zinc-900 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-100 outline-none focus:ring-1 focus:ring-indigo-500">
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="text-[11px] text-zinc-500">Max Turns</label>
+                <input name="max_turns" type="number" value="{{.Agent.MaxTurns}}" class="w-full bg-zinc-900 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-100 outline-none focus:ring-1 focus:ring-indigo-500">
+              </div>
+              <div>
+                <label class="text-[11px] text-zinc-500">Timeout</label>
+                <input name="timeout_sec" type="number" value="{{.Agent.TimeoutSec}}" class="w-full bg-zinc-900 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-100 outline-none focus:ring-1 focus:ring-indigo-500">
+              </div>
+            </div>
+            <div class="flex items-center gap-4">
+              <label class="flex items-center gap-1.5 text-[11px] text-zinc-400 cursor-pointer"><input type="checkbox" name="heartbeat_enabled" {{if .Agent.HeartbeatEnabled}}checked{{end}} class="rounded border-zinc-600 bg-zinc-900"> Heartbeat</label>
+              <label class="flex items-center gap-1.5 text-[11px] text-zinc-400 cursor-pointer"><input type="checkbox" name="chrome_enabled" {{if .Agent.ChromeEnabled}}checked{{end}} class="rounded border-zinc-600 bg-zinc-900"> Chrome</label>
+            </div>
+            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-3 py-1.5 rounded-md transition-colors">Save</button>
+          </form>
+        </details>
+
+        <div class="text-[11px] text-zinc-600 space-y-0.5 pt-1">
+          <div>Created {{timeAgo .Agent.CreatedAt}}</div>
+          <div>Updated {{timeAgo .Agent.UpdatedAt}}</div>
+        </div>
+      </div>
     </div>
+
   </div>
-</div>
 </main>
 {{template "foot" .}}
