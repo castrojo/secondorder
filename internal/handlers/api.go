@@ -4,22 +4,29 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/msoedov/thelastorg/internal/db"
 	"github.com/msoedov/thelastorg/internal/models"
-	"github.com/google/uuid"
 )
 
-type API struct {
-	db   *db.DB
-	sse  *SSEHub
-	wake func(agent *models.Agent, issue *models.Issue)
+type TelegramNotifier interface {
+	SendWorkBlockApproval(blockID, title, goal, transition string) error
+	SendMessage(text string) error
 }
 
-func NewAPI(database *db.DB, sse *SSEHub, wake func(*models.Agent, *models.Issue)) *API {
-	return &API{db: database, sse: sse, wake: wake}
+type API struct {
+	db       *db.DB
+	sse      *SSEHub
+	wake     func(agent *models.Agent, issue *models.Issue)
+	telegram TelegramNotifier
+}
+
+func NewAPI(database *db.DB, sse *SSEHub, wake func(*models.Agent, *models.Issue), tg TelegramNotifier) *API {
+	return &API{db: database, sse: sse, wake: wake, telegram: tg}
 }
 
 // Auth middleware extracts agent from API key
@@ -167,6 +174,41 @@ func (a *API) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	if body.Status == models.StatusDone || body.Status == models.StatusBlocked || body.Status == models.StatusInReview {
 		if agent != nil && a.wake != nil {
 			go a.wakeReviewerForIssue(agent.ID, key)
+		}
+	}
+
+	// Wake assignee when reviewer sends work back to in_progress
+	if body.Status == models.StatusInProgress && agent != nil && issue.AssigneeAgentID != nil && *issue.AssigneeAgentID != agent.ID {
+		// Check retry limit
+		runCount, _ := a.db.CountRunsForIssue(key)
+		if runCount > 6 {
+			issue.Status = models.StatusBlocked
+			a.db.UpdateIssue(issue)
+			a.db.CreateComment(&models.Comment{
+				ID:       uuid.New().String(),
+				IssueKey: key,
+				Author:   "System",
+				Body:     "Max retry limit reached. Needs human intervention.",
+			})
+			if a.telegram != nil {
+				go a.telegram.SendMessage(fmt.Sprintf("Issue %s stuck after %d runs. Needs human intervention.", key, runCount))
+			}
+		} else if a.wake != nil {
+			if assignee, err := a.db.GetAgent(*issue.AssigneeAgentID); err == nil {
+				go a.wake(assignee, issue)
+			}
+		}
+	}
+
+	// Auto-ready check for work blocks
+	if (body.Status == models.StatusDone || body.Status == models.StatusCancelled) && issue.WorkBlockID != nil {
+		if allDone, _ := a.db.CheckWorkBlockAutoReady(*issue.WorkBlockID); allDone {
+			a.db.UpdateWorkBlockStatus(*issue.WorkBlockID, models.WBStatusReady)
+			if a.telegram != nil {
+				if wb, err := a.db.GetWorkBlock(*issue.WorkBlockID); err == nil {
+					go a.telegram.SendWorkBlockApproval(wb.ID, wb.Title, wb.Goal, "ready_to_ship")
+				}
+			}
 		}
 	}
 
@@ -381,4 +423,113 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+// --- Work Blocks API ---
+
+func (a *API) ListWorkBlocks(w http.ResponseWriter, r *http.Request) {
+	blocks, err := a.db.ListWorkBlocks()
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, blocks)
+}
+
+func (a *API) GetWorkBlock(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	wb, err := a.db.GetWorkBlock(id)
+	if err != nil {
+		jsonError(w, "work block not found", http.StatusNotFound)
+		return
+	}
+	wb.Issues, _ = a.db.ListWorkBlockIssues(id)
+	wb.Stats, _ = a.db.GetWorkBlockStats(id)
+	jsonOK(w, wb)
+}
+
+func (a *API) CreateWorkBlock(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Title string `json:"title"`
+		Goal  string `json:"goal"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Title == "" {
+		jsonError(w, "title required", http.StatusBadRequest)
+		return
+	}
+
+	wb := &models.WorkBlock{
+		Title:  body.Title,
+		Goal:   body.Goal,
+		Status: models.WBStatusProposed,
+	}
+	if err := a.db.CreateWorkBlock(wb); err != nil {
+		jsonError(w, err.Error(), http.StatusConflict)
+		return
+	}
+
+	agent := agentFromContext(r.Context())
+	a.db.LogActivity("create", "work_block", wb.ID, ptrStr(agent), body.Title)
+
+	if a.telegram != nil {
+		go a.telegram.SendWorkBlockApproval(wb.ID, wb.Title, wb.Goal, "proposed")
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	jsonOK(w, wb)
+}
+
+func (a *API) UpdateWorkBlock(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Status == "" {
+		jsonError(w, "status required", http.StatusBadRequest)
+		return
+	}
+
+	if err := a.db.UpdateWorkBlockStatus(id, body.Status); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	agent := agentFromContext(r.Context())
+	a.db.LogActivity("update", "work_block", id, ptrStr(agent), body.Status)
+
+	jsonOK(w, map[string]string{"status": body.Status})
+}
+
+func (a *API) AssignIssueToBlock(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		IssueKey string `json:"issue_key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.IssueKey == "" {
+		jsonError(w, "issue_key required", http.StatusBadRequest)
+		return
+	}
+
+	if err := a.db.AssignIssueToWorkBlock(body.IssueKey, id); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	agent := agentFromContext(r.Context())
+	a.db.LogActivity("assign_to_block", "issue", body.IssueKey, ptrStr(agent), id)
+
+	jsonOK(w, map[string]string{"status": "assigned"})
+}
+
+func (a *API) UnassignIssueFromBlock(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	if err := a.db.UnassignIssueFromWorkBlock(key); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	agent := agentFromContext(r.Context())
+	a.db.LogActivity("unassign_from_block", "issue", key, ptrStr(agent), "")
+
+	jsonOK(w, map[string]string{"status": "unassigned"})
 }

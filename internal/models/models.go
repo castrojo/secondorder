@@ -20,6 +20,15 @@ const (
 	RunStatusCancelled = "cancelled"
 )
 
+// WorkBlock statuses
+const (
+	WBStatusProposed  = "proposed"
+	WBStatusActive    = "active"
+	WBStatusReady     = "ready"
+	WBStatusShipped   = "shipped"
+	WBStatusCancelled = "cancelled"
+)
+
 type Agent struct {
 	ID               string    `json:"id"`
 	Name             string    `json:"name"`
@@ -183,6 +192,17 @@ type WorkBlock struct {
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 	CompletedAt *time.Time `json:"completed_at"`
+	Issues      []Issue         `json:"issues,omitempty"`
+	Stats       *WorkBlockStats `json:"stats,omitempty"`
+}
+
+type WorkBlockStats struct {
+	TotalCost       float64 `json:"total_cost"`
+	RunCount        int     `json:"run_count"`
+	IssuesPlanned   int     `json:"issues_planned"`
+	IssuesCompleted int     `json:"issues_completed"`
+	IssuesCancelled int     `json:"issues_cancelled"`
+	CycleTimeHours  float64 `json:"cycle_time_hours"`
 }
 
 type DashboardStats struct {

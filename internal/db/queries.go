@@ -639,3 +639,188 @@ func (d *DB) AddLabelToIssue(issueID, labelID string) error {
 	_, err := d.Exec(`INSERT OR IGNORE INTO issue_labels (issue_id, label_id) VALUES (?, ?)`, issueID, labelID)
 	return err
 }
+
+// --- Work Blocks ---
+
+func (d *DB) CreateWorkBlock(wb *models.WorkBlock) error {
+	// Enforce one active/proposed at a time
+	var count int
+	if err := d.QueryRow(`SELECT COUNT(*) FROM work_blocks WHERE status IN ('proposed','active')`).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return fmt.Errorf("cannot create work block: an active or proposed block already exists")
+	}
+
+	if wb.ID == "" {
+		wb.ID = uuid.NewString()
+	}
+	now := time.Now()
+	wb.CreatedAt = now
+	wb.UpdatedAt = now
+	if wb.Status == "" {
+		wb.Status = models.WBStatusProposed
+	}
+	_, err := d.Exec(`INSERT INTO work_blocks (id, title, goal, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		wb.ID, wb.Title, wb.Goal, wb.Status, wb.CreatedAt, wb.UpdatedAt)
+	return err
+}
+
+func (d *DB) GetWorkBlock(id string) (*models.WorkBlock, error) {
+	wb := &models.WorkBlock{}
+	err := d.QueryRow(`SELECT id, title, goal, status, created_at, updated_at, completed_at FROM work_blocks WHERE id=?`, id).Scan(
+		&wb.ID, &wb.Title, &wb.Goal, &wb.Status, &wb.CreatedAt, &wb.UpdatedAt, &wb.CompletedAt)
+	if err != nil {
+		return nil, err
+	}
+	return wb, nil
+}
+
+func (d *DB) GetActiveWorkBlock() (*models.WorkBlock, error) {
+	wb := &models.WorkBlock{}
+	err := d.QueryRow(`SELECT id, title, goal, status, created_at, updated_at, completed_at FROM work_blocks WHERE status='active' LIMIT 1`).Scan(
+		&wb.ID, &wb.Title, &wb.Goal, &wb.Status, &wb.CreatedAt, &wb.UpdatedAt, &wb.CompletedAt)
+	if err != nil {
+		return nil, err
+	}
+	return wb, nil
+}
+
+func (d *DB) ListWorkBlocks() ([]models.WorkBlock, error) {
+	rows, err := d.Query(`SELECT id, title, goal, status, created_at, updated_at, completed_at FROM work_blocks ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var blocks []models.WorkBlock
+	for rows.Next() {
+		var wb models.WorkBlock
+		if err := rows.Scan(&wb.ID, &wb.Title, &wb.Goal, &wb.Status, &wb.CreatedAt, &wb.UpdatedAt, &wb.CompletedAt); err != nil {
+			return nil, err
+		}
+		blocks = append(blocks, wb)
+	}
+	return blocks, rows.Err()
+}
+
+func (d *DB) UpdateWorkBlockStatus(id, newStatus string) error {
+	wb, err := d.GetWorkBlock(id)
+	if err != nil {
+		return fmt.Errorf("work block not found: %w", err)
+	}
+
+	// Validate transitions
+	allowed := map[string][]string{
+		models.WBStatusProposed: {models.WBStatusActive, models.WBStatusCancelled},
+		models.WBStatusActive:   {models.WBStatusReady, models.WBStatusCancelled},
+		models.WBStatusReady:    {models.WBStatusShipped, models.WBStatusActive, models.WBStatusCancelled},
+	}
+	valid := false
+	for _, s := range allowed[wb.Status] {
+		if s == newStatus {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return fmt.Errorf("invalid transition: %s -> %s", wb.Status, newStatus)
+	}
+
+	// Sequential enforcement for activation
+	if newStatus == models.WBStatusActive {
+		var count int
+		d.QueryRow(`SELECT COUNT(*) FROM work_blocks WHERE status='active' AND id != ?`, id).Scan(&count)
+		if count > 0 {
+			return fmt.Errorf("another work block is already active")
+		}
+	}
+
+	now := time.Now()
+	if newStatus == models.WBStatusShipped || newStatus == models.WBStatusCancelled {
+		_, err = d.Exec(`UPDATE work_blocks SET status=?, updated_at=?, completed_at=? WHERE id=?`, newStatus, now, now, id)
+	} else {
+		_, err = d.Exec(`UPDATE work_blocks SET status=?, updated_at=? WHERE id=?`, newStatus, now, id)
+	}
+	return err
+}
+
+func (d *DB) AssignIssueToWorkBlock(issueKey, blockID string) error {
+	wb, err := d.GetWorkBlock(blockID)
+	if err != nil {
+		return fmt.Errorf("work block not found: %w", err)
+	}
+	if wb.Status != models.WBStatusActive {
+		return fmt.Errorf("can only assign issues to an active work block")
+	}
+	now := time.Now()
+	_, err = d.Exec(`UPDATE issues SET work_block_id=?, updated_at=? WHERE key=?`, blockID, now, issueKey)
+	return err
+}
+
+func (d *DB) UnassignIssueFromWorkBlock(issueKey string) error {
+	now := time.Now()
+	_, err := d.Exec(`UPDATE issues SET work_block_id=NULL, updated_at=? WHERE key=?`, now, issueKey)
+	return err
+}
+
+func (d *DB) ListWorkBlockIssues(blockID string) ([]models.Issue, error) {
+	rows, err := d.Query(`SELECT i.id, i.key, i.title, i.description, i.status, i.priority, i.assignee_agent_id,
+		i.parent_issue_key, i.work_block_id, i.started_at, i.completed_at, i.created_at, i.updated_at,
+		COALESCE(a.name, '')
+		FROM issues i LEFT JOIN agents a ON i.assignee_agent_id = a.id
+		WHERE i.work_block_id=? ORDER BY i.priority DESC, i.created_at`, blockID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var issues []models.Issue
+	for rows.Next() {
+		var i models.Issue
+		if err := rows.Scan(&i.ID, &i.Key, &i.Title, &i.Description, &i.Status, &i.Priority, &i.AssigneeAgentID,
+			&i.ParentIssueKey, &i.WorkBlockID, &i.StartedAt, &i.CompletedAt, &i.CreatedAt, &i.UpdatedAt,
+			&i.AssigneeName); err != nil {
+			return nil, err
+		}
+		issues = append(issues, i)
+	}
+	return issues, rows.Err()
+}
+
+func (d *DB) CheckWorkBlockAutoReady(blockID string) (bool, error) {
+	var total, notDone int
+	if err := d.QueryRow(`SELECT COUNT(*), COALESCE(SUM(CASE WHEN status NOT IN ('done','cancelled') THEN 1 ELSE 0 END), 0)
+		FROM issues WHERE work_block_id=?`, blockID).Scan(&total, &notDone); err != nil {
+		return false, err
+	}
+	return total > 0 && notDone == 0, nil
+}
+
+func (d *DB) GetWorkBlockStats(blockID string) (*models.WorkBlockStats, error) {
+	s := &models.WorkBlockStats{}
+
+	// Issue counts
+	d.QueryRow(`SELECT COUNT(*),
+		COALESCE(SUM(CASE WHEN status='done' THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN status='cancelled' THEN 1 ELSE 0 END), 0)
+		FROM issues WHERE work_block_id=?`, blockID).Scan(&s.IssuesPlanned, &s.IssuesCompleted, &s.IssuesCancelled)
+
+	// Cost and run count
+	d.QueryRow(`SELECT COUNT(*), COALESCE(SUM(total_cost_usd), 0)
+		FROM runs WHERE issue_key IN (SELECT key FROM issues WHERE work_block_id=?)`, blockID).Scan(&s.RunCount, &s.TotalCost)
+
+	// Cycle time
+	wb, err := d.GetWorkBlock(blockID)
+	if err == nil && wb.CompletedAt != nil {
+		s.CycleTimeHours = wb.CompletedAt.Sub(wb.CreatedAt).Hours()
+	}
+
+	return s, nil
+}
+
+func (d *DB) CountRunsForIssue(issueKey string) (int, error) {
+	var count int
+	err := d.QueryRow(`SELECT COUNT(*) FROM runs WHERE issue_key=?`, issueKey).Scan(&count)
+	return count, err
+}

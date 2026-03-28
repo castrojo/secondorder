@@ -23,6 +23,8 @@ func Parse() (*template.Template, error) {
 		"agents.html",
 		"agent_detail.html",
 		"run_detail.html",
+		"work_blocks.html",
+		"work_block_detail.html",
 	}
 
 	for _, pf := range partialFiles {
@@ -73,6 +75,13 @@ var funcMap = template.FuncMap{
 	"seq": seq,
 	"add": func(a, b int) int { return a + b },
 	"sub": func(a, b int) int { return a - b },
+	"wbStatusColor": wbStatusColor,
+	"derefTime": func(t *time.Time) time.Time {
+		if t == nil {
+			return time.Time{}
+		}
+		return *t
+	},
 }
 
 func timeAgo(t time.Time) string {
@@ -268,6 +277,23 @@ func diffLines(diff string) []DiffLine {
 
 func nl2br(s string) template.HTML {
 	return template.HTML(strings.ReplaceAll(template.HTMLEscapeString(s), "\n", "<br>"))
+}
+
+func wbStatusColor(s string) string {
+	switch s {
+	case "proposed":
+		return "bg-purple-500/15 text-purple-400 ring-1 ring-inset ring-purple-500/25"
+	case "active":
+		return "bg-blue-500/15 text-blue-400 ring-1 ring-inset ring-blue-500/25"
+	case "ready":
+		return "bg-amber-500/15 text-amber-400 ring-1 ring-inset ring-amber-500/25"
+	case "shipped":
+		return "bg-emerald-500/15 text-emerald-400 ring-1 ring-inset ring-emerald-500/25"
+	case "cancelled":
+		return "bg-zinc-500/10 text-zinc-500 ring-1 ring-inset ring-zinc-500/20"
+	default:
+		return "bg-zinc-700 text-zinc-300"
+	}
 }
 
 func seq(n int) []int {

@@ -32,11 +32,21 @@ func (u *UI) Dashboard(w http.ResponseWriter, r *http.Request) {
 	stats, _ := u.db.GetDashboardStats()
 	issues, _ := u.db.ListIssues("", 20)
 	agents, _ := u.db.ListAgents()
-	u.render(w, "dashboard", map[string]any{
+
+	data := map[string]any{
 		"Stats":  stats,
 		"Issues": issues,
 		"Agents": agents,
-	})
+	}
+
+	if activeBlock, err := u.db.GetActiveWorkBlock(); err == nil {
+		data["ActiveBlock"] = activeBlock
+		if blockStats, err := u.db.GetWorkBlockStats(activeBlock.ID); err == nil {
+			data["ActiveBlockStats"] = blockStats
+		}
+	}
+
+	u.render(w, "dashboard", data)
 }
 
 func (u *UI) ListIssues(w http.ResponseWriter, r *http.Request) {
@@ -415,6 +425,84 @@ func (u *UI) SearchIssuesAndAgents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonOK(w, results)
+}
+
+func (u *UI) ListWorkBlocks(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		u.createWorkBlockUI(w, r)
+		return
+	}
+	blocks, _ := u.db.ListWorkBlocks()
+	u.render(w, "work_blocks", map[string]any{"Blocks": blocks})
+}
+
+func (u *UI) createWorkBlockUI(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	title := r.FormValue("title")
+	if title == "" {
+		http.Redirect(w, r, "/work-blocks", http.StatusSeeOther)
+		return
+	}
+	wb := &models.WorkBlock{
+		Title:  title,
+		Goal:   r.FormValue("goal"),
+		Status: models.WBStatusProposed,
+	}
+	u.db.CreateWorkBlock(wb)
+	http.Redirect(w, r, "/work-blocks/"+wb.ID, http.StatusSeeOther)
+}
+
+func (u *UI) WorkBlockDetail(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	if r.Method == http.MethodPost {
+		u.updateWorkBlockUI(w, r, id)
+		return
+	}
+
+	wb, err := u.db.GetWorkBlock(id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	issues, _ := u.db.ListWorkBlockIssues(id)
+	stats, _ := u.db.GetWorkBlockStats(id)
+
+	u.render(w, "work_block_detail", map[string]any{
+		"Block":  wb,
+		"Issues": issues,
+		"Stats":  stats,
+	})
+}
+
+func (u *UI) updateWorkBlockUI(w http.ResponseWriter, r *http.Request, id string) {
+	r.ParseForm()
+	action := r.FormValue("action")
+
+	switch action {
+	case "activate":
+		u.db.UpdateWorkBlockStatus(id, models.WBStatusActive)
+	case "ready":
+		u.db.UpdateWorkBlockStatus(id, models.WBStatusReady)
+	case "ship":
+		u.db.UpdateWorkBlockStatus(id, models.WBStatusShipped)
+	case "reactivate":
+		u.db.UpdateWorkBlockStatus(id, models.WBStatusActive)
+	case "cancel":
+		u.db.UpdateWorkBlockStatus(id, models.WBStatusCancelled)
+	case "assign_issue":
+		issueKey := r.FormValue("issue_key")
+		if issueKey != "" {
+			u.db.AssignIssueToWorkBlock(issueKey, id)
+		}
+	case "unassign_issue":
+		issueKey := r.FormValue("issue_key")
+		if issueKey != "" {
+			u.db.UnassignIssueFromWorkBlock(issueKey)
+		}
+	}
+
+	http.Redirect(w, r, "/work-blocks/"+id, http.StatusSeeOther)
 }
 
 func (u *UI) render(w http.ResponseWriter, name string, data any) {

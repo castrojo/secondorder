@@ -311,16 +311,18 @@ func (s *Scheduler) buildTaskPrompt(agent *models.Agent, issue *models.Issue) st
 
 	apiRef := workerAPIRef
 	rules := workerRules
+	wbContext := ""
 	if agent.ArchetypeSlug == "ceo" {
 		apiRef = s.buildCEOAPIRef()
 		rules = ceoRules
+		wbContext = s.buildWorkBlockContext()
 	}
 
 	return fmt.Sprintf(`ISSUE: %s
 TITLE: %s
 DESCRIPTION:
 %s
-
+%s
 RECENT COMMENTS:
 %s
 %s
@@ -328,7 +330,7 @@ RECENT COMMENTS:
 %s
 
 BASE_URL: http://localhost:%d
-`, issue.Key, issue.Title, issue.Description, commentBlock, rules, apiRef, s.port)
+`, issue.Key, issue.Title, issue.Description, wbContext, commentBlock, rules, apiRef, s.port)
 }
 
 func (s *Scheduler) buildHeartbeatPrompt(agent *models.Agent) string {
@@ -352,6 +354,8 @@ func (s *Scheduler) buildHeartbeatPrompt(agent *models.Agent) string {
 				issueBlock += fmt.Sprintf("- Approval %s for issue %s (requested by: %s)\n", a.ID, a.IssueKey, a.RequestedBy)
 			}
 		}
+
+		issueBlock += s.buildWorkBlockContext()
 	}
 
 	return fmt.Sprintf(`HEARTBEAT CHECK - Review your inbox and take action on any pending items.
@@ -365,6 +369,23 @@ YOUR INBOX:
 
 BASE_URL: http://localhost:%d
 `, issueBlock, rules, apiRef, s.port)
+}
+
+func (s *Scheduler) buildWorkBlockContext() string {
+	wb, err := s.db.GetActiveWorkBlock()
+	if err != nil {
+		return ""
+	}
+	issues, _ := s.db.ListWorkBlockIssues(wb.ID)
+	var buf strings.Builder
+	buf.WriteString(fmt.Sprintf("\nACTIVE WORK BLOCK: %s (id: %s)\nGoal: %s\n", wb.Title, wb.ID, wb.Goal))
+	if len(issues) > 0 {
+		buf.WriteString("Block Issues:\n")
+		for _, i := range issues {
+			buf.WriteString(fmt.Sprintf("  - [%s] %s (status: %s)\n", i.Key, i.Title, i.Status))
+		}
+	}
+	return buf.String()
 }
 
 func (s *Scheduler) buildCEOAPIRef() string {
@@ -442,7 +463,11 @@ const ceoRules = `RULES:
 - Break complex tasks into clear sub-issues with acceptance criteria.
 - After delegating, mark the parent as "in_progress" and comment your plan.
 - When reviewing completed work: approve, request changes via comment, or reassign.
-- If blocked, post a comment and mark "blocked".`
+- If blocked, post a comment and mark "blocked".
+- If there is an active work block, focus your work on its goal. Assign relevant issues to the block.
+- When all issues in a block are done, mark the block as "ready" via PATCH.
+- To start new work, propose a work block first. A human must approve it before it becomes active.
+- Only one work block can be active or proposed at a time.`
 
 const ceoAPIRef = `TLO API (Authorization: Bearer $TLO_API_KEY):
   GET    $THELASTORG_API_URL/api/v1/inbox                              - your assigned issues
@@ -452,6 +477,12 @@ const ceoAPIRef = `TLO API (Authorization: Bearer $TLO_API_KEY):
   POST   $THELASTORG_API_URL/api/v1/issues                             - create & assign: {"title":"...","assignee_slug":"...","parent_issue_key":"..."}
   GET    $THELASTORG_API_URL/api/v1/agents                             - list team (slug, name, archetype)
   POST   $THELASTORG_API_URL/api/v1/approvals/{id}/resolve             - review: {"status":"approved","comment":"..."}
+  GET    $THELASTORG_API_URL/api/v1/work-blocks                        - list work blocks
+  GET    $THELASTORG_API_URL/api/v1/work-blocks/{id}                   - block detail + issues + metrics
+  POST   $THELASTORG_API_URL/api/v1/work-blocks                        - propose block: {"title":"...","goal":"..."}
+  PATCH  $THELASTORG_API_URL/api/v1/work-blocks/{id}                   - update status: {"status":"ready"}
+  POST   $THELASTORG_API_URL/api/v1/work-blocks/{id}/issues            - assign issue: {"issue_key":"TLO-5"}
+  DELETE $THELASTORG_API_URL/api/v1/work-blocks/{id}/issues/{key}      - unassign issue
 
 Your team:
 %s`

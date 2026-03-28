@@ -15,6 +15,7 @@ import (
 	"github.com/msoedov/thelastorg/internal/handlers"
 	"github.com/msoedov/thelastorg/internal/models"
 	"github.com/msoedov/thelastorg/internal/scheduler"
+	"github.com/msoedov/thelastorg/internal/telegram"
 	"github.com/msoedov/thelastorg/internal/templates"
 	log "github.com/sirupsen/logrus"
 )
@@ -74,8 +75,43 @@ func main() {
 		sse.Broadcast("run_complete", string(data))
 	})
 
+	// Telegram bot (optional)
+	var tg handlers.TelegramNotifier
+	if token := os.Getenv("TLO_TELEGRAM_TOKEN"); token != "" {
+		chatID := os.Getenv("TLO_TELEGRAM_CHAT_ID")
+		bot := telegram.New(token, chatID)
+		bot.OnApproval = func(blockID, decision string) {
+			if decision == "approve" {
+				wb, err := database.GetWorkBlock(blockID)
+				if err != nil {
+					log.WithError(err).Error("telegram: block not found")
+					return
+				}
+				switch wb.Status {
+				case models.WBStatusProposed:
+					database.UpdateWorkBlockStatus(blockID, models.WBStatusActive)
+					log.WithField("block", wb.Title).Info("telegram: block activated")
+					if ceo, err := database.GetCEOAgent(); err == nil {
+						sched.WakeAgentHeartbeat(ceo)
+					}
+				case models.WBStatusReady:
+					database.UpdateWorkBlockStatus(blockID, models.WBStatusShipped)
+					log.WithField("block", wb.Title).Info("telegram: block shipped")
+				}
+			} else {
+				database.LogActivity("rejected", "work_block", blockID, nil, "Rejected via Telegram")
+				log.WithField("block", blockID).Info("telegram: block rejected")
+			}
+		}
+		ctx, tgCancel := context.WithCancel(context.Background())
+		go bot.StartPolling(ctx)
+		defer tgCancel()
+		tg = bot
+		log.Info("telegram bot enabled")
+	}
+
 	// Handlers
-	api := handlers.NewAPI(database, sse, wake)
+	api := handlers.NewAPI(database, sse, wake, tg)
 	ui := handlers.NewUI(database, sse, tmpl, wake, sched)
 
 	// Routes
@@ -93,6 +129,10 @@ func main() {
 	mux.HandleFunc("POST /agents/{slug}", ui.AgentDetail)
 	mux.HandleFunc("POST /agents/{slug}/heartbeat", ui.AgentHeartbeat)
 	mux.HandleFunc("POST /agents/{slug}/assign", ui.AgentAssign)
+	mux.HandleFunc("GET /work-blocks", ui.ListWorkBlocks)
+	mux.HandleFunc("POST /work-blocks", ui.ListWorkBlocks)
+	mux.HandleFunc("GET /work-blocks/{id}", ui.WorkBlockDetail)
+	mux.HandleFunc("POST /work-blocks/{id}", ui.WorkBlockDetail)
 	mux.HandleFunc("GET /runs/{id}", ui.RunDetail)
 	mux.HandleFunc("GET /runs/{id}/stdout", ui.RunStdout)
 	mux.HandleFunc("GET /search", ui.SearchIssuesAndAgents)
@@ -120,6 +160,12 @@ func main() {
 	mux.HandleFunc("GET /api/v1/agents/me", api.Auth(api.AgentMe))
 	mux.HandleFunc("GET /api/v1/usage", api.Auth(api.Usage))
 	mux.HandleFunc("POST /api/v1/approvals/{id}/resolve", api.Auth(api.ResolveApproval))
+	mux.HandleFunc("GET /api/v1/work-blocks", api.Auth(api.ListWorkBlocks))
+	mux.HandleFunc("GET /api/v1/work-blocks/{id}", api.Auth(api.GetWorkBlock))
+	mux.HandleFunc("POST /api/v1/work-blocks", api.Auth(api.CreateWorkBlock))
+	mux.HandleFunc("PATCH /api/v1/work-blocks/{id}", api.Auth(api.UpdateWorkBlock))
+	mux.HandleFunc("POST /api/v1/work-blocks/{id}/issues", api.Auth(api.AssignIssueToBlock))
+	mux.HandleFunc("DELETE /api/v1/work-blocks/{id}/issues/{key}", api.Auth(api.UnassignIssueFromBlock))
 
 	// Apply org template on first run
 	applyStartupTemplate(database)
