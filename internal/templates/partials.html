@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>The Last Org</title>
+    <title>{{if .PageTitle}}{{.PageTitle}} - The Last Org{{else}}The Last Org{{end}}</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
@@ -74,12 +74,24 @@ details[open] .chev { transform: rotate(90deg); }
     {{end}}
 
     {{define "nav"}}
-    <nav
-      class="w-56 bg-zinc-900 border-r border-zinc-800 flex flex-col fixed h-full">
-      <div class="px-4 py-5 border-b border-zinc-800">
-        <h1 class="text-sm font-semibold tracking-wide text-zinc-100">The Last
-          Org</h1>
-        <p class="text-xs text-zinc-500 mt-0.5">L5 Agent</p>
+    <!-- Mobile hamburger button -->
+    <button id="mobile-menu-btn" onclick="toggleMobileNav()"
+      class="md:hidden fixed top-4 left-4 z-50 p-2 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-400 hover:text-zinc-200 transition-colors">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <!-- Mobile overlay -->
+    <div id="mobile-nav-overlay" class="md:hidden fixed inset-0 bg-black/50 z-40 hidden" onclick="closeMobileNav()"></div>
+    <nav id="sidebar"
+      class="w-56 bg-zinc-900 border-r border-zinc-800 flex flex-col fixed h-full z-40 -translate-x-full md:translate-x-0 transition-transform duration-200">
+      <div class="px-4 py-5 border-b border-zinc-800 flex items-center justify-between">
+        <div>
+          <h1 class="text-sm font-semibold tracking-wide text-zinc-100">The Last
+            Org</h1>
+          <p class="text-xs text-zinc-500 mt-0.5">L5 Agent</p>
+        </div>
+        <button onclick="closeMobileNav()" class="md:hidden p-1 text-zinc-500 hover:text-zinc-300 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
       </div>
       <div class="flex-1 py-3 px-2 space-y-0.5">
         <a href="/dashboard"
@@ -276,6 +288,20 @@ document.addEventListener('htmx:afterSwap', function(e) {
     if (isNearBottom) el.scrollTop = el.scrollHeight;
   }
 });
+
+/* Mobile nav toggle */
+function toggleMobileNav() {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('mobile-nav-overlay');
+  sidebar.classList.toggle('-translate-x-full');
+  overlay.classList.toggle('hidden');
+}
+function closeMobileNav() {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('mobile-nav-overlay');
+  sidebar.classList.add('-translate-x-full');
+  overlay.classList.add('hidden');
+}
 
 /* Toast progress bar shrink animation (injected dynamically) */
 if (!document.getElementById('toast-progress-style')) {
