@@ -113,36 +113,36 @@ func timeAgo(t time.Time) string {
 func statusColor(s string) string {
 	switch s {
 	case "todo":
-		return "badge-todo"
+		return "bg-zinc-600/80 text-zinc-200"
 	case "in_progress":
-		return "badge-in-progress"
+		return "bg-blue-500/15 text-blue-400 ring-1 ring-inset ring-blue-500/25"
 	case "in_review":
-		return "badge-in-review"
+		return "bg-amber-500/15 text-amber-400 ring-1 ring-inset ring-amber-500/25"
 	case "done":
-		return "badge-done"
+		return "bg-emerald-500/15 text-emerald-400 ring-1 ring-inset ring-emerald-500/25"
 	case "blocked":
-		return "badge-blocked"
+		return "bg-red-500/15 text-red-400 ring-1 ring-inset ring-red-500/25"
 	case "cancelled":
-		return "badge-cancelled"
+		return "bg-zinc-500/10 text-zinc-500 ring-1 ring-inset ring-zinc-500/20"
 	default:
-		return "badge-default"
+		return "bg-zinc-700 text-zinc-300"
 	}
 }
 
 func statusIcon(s string) template.HTML {
 	switch s {
 	case "todo":
-		return `<svg class="icon-xs" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/></svg>`
+		return `<svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/></svg>`
 	case "in_progress":
-		return `<svg class="icon-xs" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 2a6 6 0 0 0 0 12" fill="currentColor" opacity=".35"/></svg>`
+		return `<svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 2a6 6 0 0 0 0 12" fill="currentColor" opacity=".35"/></svg>`
 	case "in_review":
-		return `<svg class="icon-xs" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="2.5" fill="currentColor" opacity=".4"/></svg>`
+		return `<svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="2.5" fill="currentColor" opacity=".4"/></svg>`
 	case "done":
-		return `<svg class="icon-xs" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 8l2 2 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+		return `<svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 8l2 2 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
 	case "blocked":
-		return `<svg class="icon-xs" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`
+		return `<svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`
 	case "cancelled":
-		return `<svg class="icon-xs" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"/></svg>`
+		return `<svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"/></svg>`
 	default:
 		return ""
 	}
@@ -151,19 +151,19 @@ func statusIcon(s string) template.HTML {
 func statusDot(s string) string {
 	switch s {
 	case "todo":
-		return "dot-muted"
+		return "text-zinc-400"
 	case "in_progress":
-		return "dot-blue"
+		return "text-blue-400"
 	case "in_review":
-		return "dot-amber"
+		return "text-amber-400"
 	case "done":
-		return "dot-green"
+		return "text-emerald-400"
 	case "blocked":
-		return "dot-red"
+		return "text-red-400"
 	case "cancelled":
-		return "dot-dim"
+		return "text-zinc-600"
 	default:
-		return "dot-muted"
+		return "text-zinc-400"
 	}
 }
 
@@ -185,30 +185,30 @@ func priorityLabel(p int) string {
 func priorityColor(p int) string {
 	switch p {
 	case 1:
-		return "priority-low"
+		return "text-emerald-400"
 	case 2:
-		return "priority-medium"
+		return "text-yellow-400"
 	case 3:
-		return "priority-high"
+		return "text-orange-400"
 	case 4:
-		return "priority-urgent"
+		return "text-red-400"
 	default:
-		return "priority-none"
+		return "text-zinc-500"
 	}
 }
 
 func runStatusColor(s string) string {
 	switch s {
 	case "running":
-		return "badge-in-progress"
+		return "bg-blue-500/15 text-blue-400 ring-1 ring-inset ring-blue-500/25"
 	case "completed":
-		return "badge-done"
+		return "bg-emerald-500/15 text-emerald-400 ring-1 ring-inset ring-emerald-500/25"
 	case "failed":
-		return "badge-blocked"
+		return "bg-red-500/15 text-red-400 ring-1 ring-inset ring-red-500/25"
 	case "cancelled":
-		return "badge-cancelled"
+		return "bg-zinc-500/10 text-zinc-500 ring-1 ring-inset ring-zinc-500/20"
 	default:
-		return "badge-default"
+		return "bg-zinc-700 text-zinc-300"
 	}
 }
 
@@ -260,15 +260,15 @@ func diffLines(diff string) []DiffLine {
 		dl := DiffLine{Content: line}
 		switch {
 		case strings.HasPrefix(line, "@@"):
-			dl.Class = "diff-hunk"
+			dl.Class = "text-indigo-400 bg-indigo-950/20"
 		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"), strings.HasPrefix(line, "diff "):
-			dl.Class = "diff-meta"
+			dl.Class = "text-zinc-500 font-medium"
 		case strings.HasPrefix(line, "+"):
-			dl.Class = "diff-add"
+			dl.Class = "text-emerald-400 bg-emerald-950/30"
 		case strings.HasPrefix(line, "-"):
-			dl.Class = "diff-del"
+			dl.Class = "text-red-400 bg-red-950/30"
 		default:
-			dl.Class = "diff-context"
+			dl.Class = "text-zinc-500"
 		}
 		lines = append(lines, dl)
 	}
@@ -282,17 +282,17 @@ func nl2br(s string) template.HTML {
 func wbStatusColor(s string) string {
 	switch s {
 	case "proposed":
-		return "badge-proposed"
+		return "bg-purple-500/15 text-purple-400 ring-1 ring-inset ring-purple-500/25"
 	case "active":
-		return "badge-in-progress"
+		return "bg-blue-500/15 text-blue-400 ring-1 ring-inset ring-blue-500/25"
 	case "ready":
-		return "badge-in-review"
+		return "bg-amber-500/15 text-amber-400 ring-1 ring-inset ring-amber-500/25"
 	case "shipped":
-		return "badge-done"
+		return "bg-emerald-500/15 text-emerald-400 ring-1 ring-inset ring-emerald-500/25"
 	case "cancelled":
-		return "badge-cancelled"
+		return "bg-zinc-500/10 text-zinc-500 ring-1 ring-inset ring-zinc-500/20"
 	default:
-		return "badge-default"
+		return "bg-zinc-700 text-zinc-300"
 	}
 }
 
