@@ -5,7 +5,7 @@
 
     <div class="flex items-center justify-between mb-6">
       <h1 class="text-lg font-semibold text-zinc-100 tracking-tight">Issues</h1>
-      <button onclick="document.getElementById('new-issue').classList.toggle('hidden')" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition-colors">
+      <button onclick="document.getElementById('new-issue').classList.toggle('hidden')" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium bg-indigo-600 text-white hover:bg-indigo-500 active:scale-[0.97] transition-all">
         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
         New Issue
       </button>
@@ -40,7 +40,7 @@
               <option value="4">Urgent</option>
             </select>
           </div>
-          <button type="submit" class="px-5 py-2 rounded-md text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition-colors">Create</button>
+          <button type="submit" class="px-5 py-2 rounded-md text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-500 active:scale-[0.97] transition-all">Create</button>
         </div>
       </form>
     </div>
@@ -57,9 +57,9 @@
     </div>
 
     <!-- Issue List -->
-    <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg divide-y divide-zinc-800/60 overflow-hidden">
+    <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg divide-y divide-zinc-800/60 overflow-hidden fade-in">
       {{range .Issues}}
-      <a href="/issues/{{.Key}}" class="flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800/40 transition-colors group">
+      <a href="/issues/{{.Key}}" class="flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800/40 transition-all group">
         <span class="{{statusColor .Status}} inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0">{{statusIcon .Status}}</span>
         <span class="font-mono text-xs text-zinc-500 w-14 shrink-0 group-hover:text-indigo-400 transition-colors">{{.Key}}</span>
         {{if gt .Priority 0}}<span class="text-[11px] {{priorityColor .Priority}} shrink-0">{{priorityLabel .Priority}}</span>{{end}}

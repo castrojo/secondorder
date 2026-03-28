@@ -8,7 +8,7 @@
         <h1 class="text-lg font-semibold text-zinc-100 tracking-tight">Work Blocks</h1>
         <p class="text-[13px] text-zinc-500 mt-0.5">Shippable units of work</p>
       </div>
-      <button onclick="document.getElementById('create-form').classList.toggle('hidden')" class="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-md transition-colors">Propose Block</button>
+      <button onclick="document.getElementById('create-form').classList.toggle('hidden')" class="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 active:scale-[0.97] text-white rounded-md transition-all">Propose Block</button>
     </div>
 
     <!-- Create form -->
@@ -25,9 +25,9 @@
     </form>
 
     <!-- Blocks list -->
-    <div class="space-y-2">
+    <div class="space-y-2 stagger">
       {{range .Blocks}}
-      <a href="/work-blocks/{{.ID}}" class="block bg-zinc-800/50 border border-zinc-800 rounded-lg px-5 py-4 hover:border-zinc-700 transition-colors group">
+      <a href="/work-blocks/{{.ID}}" class="block bg-zinc-800/50 border border-zinc-800 rounded-lg px-5 py-4 hover:border-zinc-700 hover:translate-x-0.5 transition-all group">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-3">
             <span class="{{wbStatusColor .Status}} inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium">{{upper .Status}}</span>

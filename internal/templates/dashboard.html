@@ -9,28 +9,28 @@
     </div>
 
     <!-- Stats -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
-      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-4">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8 stagger">
+      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-4 hover:border-zinc-700 transition-colors">
         <div class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Agents</div>
         <div class="mt-2 flex items-baseline gap-1.5">
           <span class="text-2xl font-semibold text-zinc-100 tabular-nums">{{.Stats.ActiveAgents}}</span>
           <span class="text-xs text-zinc-500">/ {{.Stats.TotalAgents}}</span>
         </div>
       </div>
-      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-4">
+      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-4 hover:border-zinc-700 transition-colors">
         <div class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Open Issues</div>
         <div class="mt-2 flex items-baseline gap-1.5">
           <span class="text-2xl font-semibold text-zinc-100 tabular-nums">{{.Stats.OpenIssues}}</span>
           <span class="text-xs text-zinc-500">/ {{.Stats.TotalIssues}}</span>
         </div>
       </div>
-      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-4">
+      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-4 hover:border-zinc-700 transition-colors">
         <div class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Running</div>
         <div class="mt-2">
           <span class="text-2xl font-semibold text-blue-400 tabular-nums">{{.Stats.RunningRuns}}</span>
         </div>
       </div>
-      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-4">
+      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-4 hover:border-zinc-700 transition-colors">
         <div class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Cost Today</div>
         <div class="mt-2">
           <span class="text-2xl font-semibold text-zinc-100 tabular-nums">{{formatCost .Stats.TotalCostToday}}</span>
@@ -60,9 +60,9 @@
           <h2 class="text-[13px] font-medium text-zinc-300">Recent Issues</h2>
           <a href="/issues" class="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">View all</a>
         </div>
-        <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg divide-y divide-zinc-800/60 overflow-hidden">
+        <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg divide-y divide-zinc-800/60 overflow-hidden fade-in">
           {{range .Issues}}
-          <a href="/issues/{{.Key}}" class="flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800/40 transition-colors group">
+          <a href="/issues/{{.Key}}" class="flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800/40 transition-all group">
             <span class="{{statusColor .Status}} inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0">{{statusIcon .Status}}</span>
             <span class="font-mono text-xs text-zinc-500 w-14 shrink-0">{{.Key}}</span>
             <span class="text-[13px] text-zinc-200 flex-1 truncate group-hover:text-zinc-100">{{.Title}}</span>
@@ -82,9 +82,9 @@
           <h2 class="text-[13px] font-medium text-zinc-300">Agents</h2>
           <a href="/agents" class="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Manage</a>
         </div>
-        <div class="space-y-1.5">
+        <div class="space-y-1.5 stagger">
           {{range .Agents}}
-          <a href="/agents/{{.Slug}}" class="flex items-center gap-3 bg-zinc-800/50 border border-zinc-800 rounded-lg px-4 py-3 hover:border-zinc-700 transition-colors group">
+          <a href="/agents/{{.Slug}}" class="flex items-center gap-3 bg-zinc-800/50 border border-zinc-800 rounded-lg px-4 py-3 hover:border-zinc-700 transition-all hover:translate-x-0.5 group">
             <div class="w-2 h-2 rounded-full shrink-0 {{if .Active}}bg-emerald-400{{else}}bg-zinc-600{{end}}"></div>
             <div class="flex-1 min-w-0">
               <div class="text-[13px] font-medium text-zinc-200 truncate group-hover:text-zinc-100">{{.Name}}</div>

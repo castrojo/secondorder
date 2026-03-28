@@ -10,7 +10,7 @@
     </div>
 
     <div class="flex gap-6">
-      <div class="flex-1 min-w-0 space-y-6">
+      <div class="flex-1 min-w-0 space-y-6 slide-up">
 
         <!-- Header -->
         <div class="flex items-center gap-3">
@@ -26,20 +26,20 @@
         </div>
 
         <!-- Usage -->
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3">
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 stagger">
+          <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3 hover:border-zinc-700 transition-colors">
             <div class="text-[11px] text-zinc-500 uppercase tracking-wider">Today Tokens</div>
             <div class="text-lg font-semibold text-zinc-100 mt-1 tabular-nums">{{formatTokens .TodayTokens}}</div>
           </div>
-          <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3">
+          <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3 hover:border-zinc-700 transition-colors">
             <div class="text-[11px] text-zinc-500 uppercase tracking-wider">Today Cost</div>
             <div class="text-lg font-semibold text-zinc-100 mt-1 tabular-nums">{{formatCost .TodayCost}}</div>
           </div>
-          <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3">
+          <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3 hover:border-zinc-700 transition-colors">
             <div class="text-[11px] text-zinc-500 uppercase tracking-wider">Total Tokens</div>
             <div class="text-lg font-semibold text-zinc-100 mt-1 tabular-nums">{{formatTokens .TotalTokens}}</div>
           </div>
-          <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3">
+          <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3 hover:border-zinc-700 transition-colors">
             <div class="text-[11px] text-zinc-500 uppercase tracking-wider">Total Cost</div>
             <div class="text-lg font-semibold text-zinc-100 mt-1 tabular-nums">{{formatCost .TotalCost}}</div>
           </div>

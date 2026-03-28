@@ -23,24 +23,24 @@
     </div>
 
     <!-- Stats -->
-    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
-      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3">
+    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6 stagger">
+      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3 hover:border-zinc-700 transition-colors">
         <div class="text-[11px] text-zinc-500 uppercase tracking-wider">Cost</div>
         <div class="text-sm font-semibold text-zinc-100 mt-1 tabular-nums">{{formatCost .Run.TotalCostUSD}}</div>
       </div>
-      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3">
+      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3 hover:border-zinc-700 transition-colors">
         <div class="text-[11px] text-zinc-500 uppercase tracking-wider">Input</div>
         <div class="text-sm font-semibold text-zinc-100 mt-1 tabular-nums">{{formatTokens .Run.InputTokens}}</div>
       </div>
-      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3">
+      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3 hover:border-zinc-700 transition-colors">
         <div class="text-[11px] text-zinc-500 uppercase tracking-wider">Output</div>
         <div class="text-sm font-semibold text-zinc-100 mt-1 tabular-nums">{{formatTokens .Run.OutputTokens}}</div>
       </div>
-      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3">
+      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3 hover:border-zinc-700 transition-colors">
         <div class="text-[11px] text-zinc-500 uppercase tracking-wider">Cache Read</div>
         <div class="text-sm font-semibold text-zinc-100 mt-1 tabular-nums">{{formatTokens .Run.CacheReadTokens}}</div>
       </div>
-      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3">
+      <div class="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3 hover:border-zinc-700 transition-colors">
         <div class="text-[11px] text-zinc-500 uppercase tracking-wider">Cache Write</div>
         <div class="text-sm font-semibold text-zinc-100 mt-1 tabular-nums">{{formatTokens .Run.CacheCreateTokens}}</div>
       </div>
@@ -51,16 +51,16 @@
       <div class="flex items-center justify-between mb-2">
         <h3 class="text-[13px] font-medium text-zinc-300">Output</h3>
         {{if eq .Run.Status "running"}}
-        <span class="flex items-center gap-1.5 text-xs text-blue-400"><span class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span> Live</span>
+        <span class="flex items-center gap-1.5 text-xs text-blue-400"><span class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span> Live <span class="htmx-indicator spinner text-blue-400 ml-1"></span></span>
         {{end}}
       </div>
-      <div class="bg-zinc-950 border border-zinc-800 rounded-lg p-4 min-h-[200px] overflow-auto max-h-[600px]"
+      <div class="bg-zinc-950 border border-zinc-800 rounded-lg p-4 min-h-[200px] overflow-auto max-h-[600px] scroll-smooth"
            id="stdout-container"
-           {{if eq .Run.Status "running"}}hx-get="/runs/{{.Run.ID}}/stdout" hx-trigger="every 2s" hx-target="#stdout-container" hx-swap="innerHTML"{{end}}>
+           {{if eq .Run.Status "running"}}hx-get="/runs/{{.Run.ID}}/stdout" hx-trigger="every 2s" hx-target="#stdout-container" hx-swap="innerHTML transition:true"{{end}}>
         {{if .Run.Stdout}}
         <pre class="text-xs font-mono text-zinc-300 whitespace-pre-wrap leading-relaxed">{{.Run.Stdout}}</pre>
         {{else}}
-        <div class="text-sm text-zinc-600">{{if eq .Run.Status "running"}}Waiting for output...{{else}}No output captured.{{end}}</div>
+        <div class="text-sm text-zinc-600 fade-in">{{if eq .Run.Status "running"}}<div class="flex items-center gap-2"><span class="spinner text-zinc-600"></span> Waiting for output...</div>{{else}}No output captured.{{end}}</div>
         {{end}}
       </div>
     </div>
