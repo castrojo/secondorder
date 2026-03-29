@@ -243,6 +243,9 @@ func (s *Scheduler) execClaude(ctx context.Context, agent *models.Agent, apiKey,
 
 	archetypeFile := filepath.Join(s.archetypesDir, agent.ArchetypeSlug+".md")
 	if _, err := os.Stat(archetypeFile); err == nil {
+		if abs, err := filepath.Abs(archetypeFile); err == nil {
+			archetypeFile = abs
+		}
 		args = append(args, "--append-system-prompt-file", archetypeFile)
 	}
 
