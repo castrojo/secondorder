@@ -352,6 +352,65 @@ func TestWakeAgentWhenStopped(t *testing.T) {
 	s.WakeAgentHeartbeat(agent)
 }
 
+func TestWakeReviewerSelfReviewSkipped(t *testing.T) {
+	d := testDB(t)
+	s := New(d, 9001, "/tmp")
+
+	// CEO with no review_agent_id or reports_to — GetReviewer falls back to CEO itself
+	ceo := &models.Agent{
+		Name: "CEO", Slug: "ceo", ArchetypeSlug: "ceo",
+		Model: "opus", WorkingDir: "/tmp", MaxTurns: 100, TimeoutSec: 1200, Active: true,
+	}
+	d.CreateAgent(ceo)
+
+	issue := &models.Issue{Key: "TLO-99", Title: "Self review test", Description: "test", Status: "done", Priority: 1}
+	d.CreateIssue(issue)
+
+	// WakeReviewer should not spawn a run when reviewer == agent
+	s.WakeReviewer(ceo.ID, "TLO-99")
+
+	runs, _ := d.ListRunsForAgent(ceo.ID, 100)
+	for _, r := range runs {
+		if r.IssueKey != nil && *r.IssueKey == "TLO-99" {
+			t.Error("expected no run spawned for self-review, but found one")
+		}
+	}
+}
+
+func TestWakeReviewerDifferentReviewer(t *testing.T) {
+	d := testDB(t)
+	_ = New(d, 9001, "/tmp")
+
+	reviewer := &models.Agent{
+		Name: "CEO", Slug: "ceo", ArchetypeSlug: "ceo",
+		Model: "opus", WorkingDir: "/tmp", MaxTurns: 100, TimeoutSec: 1200, Active: true,
+	}
+	d.CreateAgent(reviewer)
+
+	workerReportsTo := reviewer.ID
+	worker := &models.Agent{
+		Name: "Worker", Slug: "worker", ArchetypeSlug: "worker",
+		Model: "sonnet", WorkingDir: "/tmp", MaxTurns: 50, TimeoutSec: 600, Active: true,
+		ReportsTo: &workerReportsTo,
+	}
+	d.CreateAgent(worker)
+
+	issue := &models.Issue{Key: "TLO-100", Title: "Review chain test", Description: "test", Status: "done", Priority: 1}
+	d.CreateIssue(issue)
+
+	// GetReviewer for worker should return CEO (different agent), so WakeReviewer should proceed
+	rev, err := d.GetReviewer(worker.ID)
+	if err != nil {
+		t.Fatalf("GetReviewer: %v", err)
+	}
+	if rev.ID != reviewer.ID {
+		t.Fatalf("expected reviewer %s, got %s", reviewer.ID, rev.ID)
+	}
+	if rev.ID == worker.ID {
+		t.Fatal("reviewer should not be the worker itself")
+	}
+}
+
 func TestCaptureGitDiffInvalidDir(t *testing.T) {
 	diff := captureGitDiff("/nonexistent/path")
 	if diff != "" {

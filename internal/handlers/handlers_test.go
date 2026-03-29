@@ -333,18 +333,24 @@ func TestCreateIssueUI_Success(t *testing.T) {
 		t.Fatalf("status = %d, want 303", w.Code)
 	}
 	loc := w.Header().Get("Location")
-	if !strings.HasPrefix(loc, "/issues/TLO-") {
-		t.Fatalf("redirect = %q, want /issues/TLO-*", loc)
+	if loc != "/issues" {
+		t.Fatalf("redirect = %q, want /issues", loc)
 	}
 
 	// Verify the issue exists in DB
-	key := strings.TrimPrefix(loc, "/issues/")
-	issue, err := d.GetIssue(key)
+	issues, err := d.ListIssues("", 100)
 	if err != nil {
-		t.Fatalf("issue not in DB: %v", err)
+		t.Fatalf("list issues: %v", err)
 	}
-	if issue.Title != "Test Issue" {
-		t.Errorf("title = %q, want %q", issue.Title, "Test Issue")
+	found := false
+	for _, iss := range issues {
+		if iss.Title == "Test Issue" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("issue not found in DB after creation")
 	}
 }
 
@@ -503,6 +509,65 @@ func TestSettingsPOST_UnknownSection(t *testing.T) {
 	loc := w.Header().Get("Location")
 	if !strings.Contains(loc, "error=Unknown") {
 		t.Errorf("redirect = %q, want error param", loc)
+	}
+}
+
+// --- Board comment reopens issue ---
+
+func TestBoardCommentReopensIssue(t *testing.T) {
+	tests := []struct {
+		name       string
+		initial    string
+		wantStatus string
+	}{
+		{"done_reopens", models.StatusDone, models.StatusInProgress},
+		{"blocked_reopens", models.StatusBlocked, models.StatusInProgress},
+		{"in_review_reopens", models.StatusInReview, models.StatusInProgress},
+		{"in_progress_stays", models.StatusInProgress, models.StatusInProgress},
+		{"todo_stays", models.StatusTodo, models.StatusTodo},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := testDB(t)
+			ui := testUI(t, d)
+
+			// Create agent and issue
+			agent := &models.Agent{
+				Name: "Worker", Slug: "worker", ArchetypeSlug: "worker",
+				Model: "sonnet", WorkingDir: "/tmp", MaxTurns: 50, TimeoutSec: 600, Active: true,
+			}
+			d.CreateAgent(agent)
+
+			issue := &models.Issue{
+				Key:             "TLO-1",
+				Title:           "Test issue",
+				Status:          tt.initial,
+				AssigneeAgentID: &agent.ID,
+			}
+			d.CreateIssue(issue)
+
+			// Post board comment
+			form := strings.NewReader("action=comment&body=Please+fix+this")
+			req := httptest.NewRequest("POST", "/issues/TLO-1", form)
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.SetPathValue("key", "TLO-1")
+			w := httptest.NewRecorder()
+
+			ui.IssueDetail(w, req)
+
+			if w.Code != http.StatusSeeOther {
+				t.Fatalf("status = %d, want 303", w.Code)
+			}
+
+			got, err := d.GetIssue("TLO-1")
+			if err != nil {
+				t.Fatalf("get issue: %v", err)
+			}
+			if got.Status != tt.wantStatus {
+				t.Errorf("status = %q, want %q", got.Status, tt.wantStatus)
+			}
+		})
 	}
 }
 

@@ -123,7 +123,7 @@ func (u *UI) createIssueUI(w http.ResponseWriter, r *http.Request) {
 		go u.wake(assignee, issue)
 	}
 
-	http.Redirect(w, r, "/issues/"+key, http.StatusSeeOther)
+	http.Redirect(w, r, "/issues", http.StatusSeeOther)
 }
 
 func (u *UI) IssueDetail(w http.ResponseWriter, r *http.Request) {
@@ -198,6 +198,17 @@ func (u *UI) updateIssueUI(w http.ResponseWriter, r *http.Request, key string) {
 			u.db.CreateComment(comment)
 			data, _ := json.Marshal(map[string]string{"issue_key": key, "author": "Board", "body": body})
 			u.sse.Broadcast("comment", string(data))
+
+			// Reopen ticket to in_progress when board comments on a completed/blocked/in_review issue
+			if issue.Status == models.StatusDone || issue.Status == models.StatusBlocked || issue.Status == models.StatusInReview {
+				issue.Status = models.StatusInProgress
+				u.db.UpdateIssue(issue)
+				if issue.AssigneeAgentID != nil {
+					if a, err := u.db.GetAgent(*issue.AssigneeAgentID); err == nil && u.wake != nil {
+						go u.wake(a, issue)
+					}
+				}
+			}
 		}
 	case "assign":
 		slug := r.FormValue("assignee_slug")

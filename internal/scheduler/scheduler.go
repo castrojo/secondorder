@@ -93,6 +93,10 @@ func (s *Scheduler) WakeReviewer(agentID, issueKey string) {
 		log.WithError(err).Error("scheduler: failed to find reviewer")
 		return
 	}
+	if reviewer.ID == agentID {
+		log.WithField("agent", agentID).Debug("scheduler: skipping self-review")
+		return
+	}
 	issue, err := s.db.GetIssue(issueKey)
 	if err != nil {
 		log.WithError(err).Error("scheduler: failed to get issue for reviewer")
