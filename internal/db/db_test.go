@@ -1134,3 +1134,110 @@ func TestSettings(t *testing.T) {
 		}
 	})
 }
+
+// --- BoardPolicy CRUD ---
+
+func TestBoardPolicyDefaultsToInactive(t *testing.T) {
+	d := testDB(t)
+	bp := &models.BoardPolicy{Directive: "test directive"}
+	if err := d.CreateBoardPolicy(bp); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if bp.Active {
+		t.Error("new policy should default to inactive, got active=true")
+	}
+	if bp.ID == "" {
+		t.Error("ID should be set after create")
+	}
+}
+
+func TestGetActiveBoardPoliciesExcludesInactive(t *testing.T) {
+	d := testDB(t)
+	d.CreateBoardPolicy(&models.BoardPolicy{Directive: "inactive one"})
+
+	active, err := d.GetActiveBoardPolicies()
+	if err != nil {
+		t.Fatalf("get active: %v", err)
+	}
+	if len(active) != 0 {
+		t.Errorf("expected 0 active policies, got %d", len(active))
+	}
+}
+
+func TestToggleBoardPolicyActivatesAndDeactivates(t *testing.T) {
+	d := testDB(t)
+	bp := &models.BoardPolicy{Directive: "toggle me"}
+	d.CreateBoardPolicy(bp)
+
+	// toggle on
+	if err := d.ToggleBoardPolicy(bp.ID); err != nil {
+		t.Fatalf("toggle: %v", err)
+	}
+	active, _ := d.GetActiveBoardPolicies()
+	if len(active) != 1 || active[0].ID != bp.ID {
+		t.Errorf("expected 1 active policy after toggle, got %d", len(active))
+	}
+
+	// toggle off
+	if err := d.ToggleBoardPolicy(bp.ID); err != nil {
+		t.Fatalf("toggle: %v", err)
+	}
+	active, _ = d.GetActiveBoardPolicies()
+	if len(active) != 0 {
+		t.Errorf("expected 0 active policies after second toggle, got %d", len(active))
+	}
+}
+
+func TestExistingActivePoliciesUnaffectedByCreate(t *testing.T) {
+	d := testDB(t)
+
+	// create and manually activate one policy
+	existing := &models.BoardPolicy{Directive: "existing active"}
+	d.CreateBoardPolicy(existing)
+	d.ToggleBoardPolicy(existing.ID)
+
+	// create a new policy (should be inactive)
+	d.CreateBoardPolicy(&models.BoardPolicy{Directive: "new one"})
+
+	active, _ := d.GetActiveBoardPolicies()
+	if len(active) != 1 {
+		t.Errorf("expected 1 active policy, got %d", len(active))
+	}
+	if active[0].ID != existing.ID {
+		t.Errorf("expected original policy to remain active")
+	}
+}
+
+func TestGetActiveBoardPoliciesOnlyReturnsActive(t *testing.T) {
+	d := testDB(t)
+	cases := []struct {
+		directive string
+		activate  bool
+	}{
+		{"policy A", true},
+		{"policy B", false},
+		{"policy C", true},
+	}
+	ids := map[string]string{}
+	for _, c := range cases {
+		bp := &models.BoardPolicy{Directive: c.directive}
+		d.CreateBoardPolicy(bp)
+		ids[c.directive] = bp.ID
+		if c.activate {
+			d.ToggleBoardPolicy(bp.ID)
+		}
+	}
+
+	active, err := d.GetActiveBoardPolicies()
+	if err != nil {
+		t.Fatalf("get active: %v", err)
+	}
+	if len(active) != 2 {
+		t.Errorf("expected 2 active policies, got %d", len(active))
+	}
+	for _, p := range active {
+		if !p.Active {
+			t.Errorf("policy %q returned by GetActiveBoardPolicies but active=false", p.Directive)
+		}
+	}
+}

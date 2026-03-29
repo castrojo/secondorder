@@ -146,7 +146,16 @@
                 <span class="w-2 h-2 bg-red-400 rounded-full shrink-0"></span>
                 {{end}}
                 <span class="text-xs text-zinc-400 tabular-nums">{{timeAgo .CreatedAt}}</span>
-                {{if .RunID}}<a href="/runs/{{deref .RunID}}" class="text-xs text-indigo-400 hover:text-indigo-300 ml-auto">View</a>{{end}}
+                <div class="flex items-center gap-2 ml-auto">
+                  {{if eq .Status "running"}}
+                  <form method="POST" action="/policies" class="inline">
+                    <input type="hidden" name="action" value="cancel_audit">
+                    <input type="hidden" name="audit_id" value="{{.ID}}">
+                    <button type="submit" class="text-xs text-red-400 hover:text-red-300">Cancel</button>
+                  </form>
+                  {{end}}
+                  {{if .RunID}}<a href="/runs/{{deref .RunID}}" class="text-xs text-indigo-400 hover:text-indigo-300">View</a>{{end}}
+                </div>
               </div>
               {{if eq .Status "completed"}}
               <span class="text-[11px] text-zinc-500 mt-1 block">{{.IssuesReviewed}} issues, {{.BlocksReviewed}} blocks</span>

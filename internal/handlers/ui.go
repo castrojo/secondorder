@@ -25,12 +25,14 @@ type UI struct {
 	sched interface {
 		WakeAgentHeartbeat(agent *models.Agent)
 		RunAudit(maxBlocks, maxIssues int, focus string) (string, error)
+		CancelAudit(auditRunID string) error
 	}
 }
 
 func NewUI(database *db.DB, sse *SSEHub, tmpl *template.Template, wake func(*models.Agent, *models.Issue), sched interface {
 	WakeAgentHeartbeat(*models.Agent)
 	RunAudit(int, int, string) (string, error)
+	CancelAudit(string) error
 }) *UI {
 	return &UI{db: database, sse: sse, tmpl: tmpl, wake: wake, sched: sched}
 }
@@ -671,6 +673,12 @@ func (u *UI) handleEvolveAction(w http.ResponseWriter, r *http.Request) {
 		patchID := r.FormValue("patch_id")
 		if patchID != "" {
 			u.db.ResolvePatch(patchID, "rejected")
+		}
+
+	case "cancel_audit":
+		auditID := r.FormValue("audit_id")
+		if auditID != "" {
+			u.sched.CancelAudit(auditID)
 		}
 	}
 

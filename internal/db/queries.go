@@ -982,7 +982,7 @@ func (d *DB) CreateBoardPolicy(bp *models.BoardPolicy) error {
 	now := time.Now()
 	bp.CreatedAt = now
 	bp.UpdatedAt = now
-	bp.Active = true
+	bp.Active = false
 	_, err := d.Exec(`INSERT INTO board_policies (id, directive, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
 		bp.ID, bp.Directive, bp.Active, bp.CreatedAt, bp.UpdatedAt)
 	return err

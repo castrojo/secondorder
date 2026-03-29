@@ -409,6 +409,27 @@ func (s *Scheduler) buildCEOAPIRef() string {
 	return fmt.Sprintf(ceoAPIRef, roster)
 }
 
+// CancelAudit cancels a running audit by its audit run ID
+func (s *Scheduler) CancelAudit(auditRunID string) error {
+	ar, err := s.db.GetAuditRun(auditRunID)
+	if err != nil {
+		return fmt.Errorf("audit run not found: %w", err)
+	}
+	if ar.Status != "running" {
+		return fmt.Errorf("audit run %s is not running (status: %s)", auditRunID, ar.Status)
+	}
+	if ar.RunID != nil {
+		s.mu.Lock()
+		if cancel, ok := s.running[*ar.RunID]; ok {
+			cancel()
+		}
+		s.mu.Unlock()
+	}
+	now := time.Now()
+	_, err = s.db.Exec(`UPDATE audit_runs SET status='cancelled', completed_at=? WHERE id=?`, now, auditRunID)
+	return err
+}
+
 // RunAudit spawns an auditor agent to review recent work
 func (s *Scheduler) RunAudit(maxBlocks, maxIssues int, focus string) (string, error) {
 	agents, _ := s.db.ListAgents()
