@@ -1,104 +1,89 @@
 # Contributing to secondorder
 
-## Secret Scanning
-
-### What and Why
-
-We use [gitleaks](https://github.com/gitleaks/gitleaks) to prevent secrets (API keys, passwords, tokens) from being committed to the repository. This runs as a pre-commit check and in CI to catch accidental credential leaks before they reach the remote.
-
-Why it matters:
-- secondorder handles API keys, encrypted secrets, and agent credentials
-- A leaked secret in git history is effectively permanent (force-pushing doesn't remove it from clones)
-- Automated scanning catches what code review misses
-
-### Local Setup
-
-**Install gitleaks:**
+## Quick start
 
 ```bash
-# macOS
+go build -o secondorder ./cmd/secondorder
+go test ./...
+./secondorder
+```
+
+Open `http://localhost:3001`. On first run, a default org (CEO + 5 agents) is bootstrapped automatically.
+
+## Project structure
+
+```
+cmd/secondorder/          Entry point, env config, route wiring
+internal/
+  handlers/               HTTP handlers (ui.go), REST API (api.go), SSE (sse.go)
+  db/                     SQLite connection, migrations, 200+ query functions
+  scheduler/              Agent dispatch, heartbeat loop, budget enforcement
+  models/                 Data types (Agent, Issue, Run, WorkBlock, etc.)
+  templates/              Go html/template + HTMX partials
+  telegram/               Telegram bot for mobile approvals
+archetypes/               21 agent role definitions (markdown files)
+static/                   CSS + JS served via http.FileServer
+```
+
+## How it works
+
+secondorder is a single-binary Go application. Server-rendered HTML (Go templates + HTMX), pure-Go SQLite (modernc.org/sqlite), SSE for real-time updates. No JavaScript framework, no external database, no build pipeline.
+
+**Recursive governance:** The system governs itself. A CEO agent triages and delegates. An auditor agent reviews performance across runs, identifies failure patterns, and proposes archetype patches. Agents review other agents' work up the reporting chain. Humans approve structural changes but don't need to diagnose problems.
+
+## Making changes
+
+### Code
+
+- Run `go test ./...` before submitting
+- Keep dependencies minimal -- three runtime deps (sqlite, uuid, logrus)
+- Templates live on the filesystem, not embedded -- edit and reload
+- Migrations in `internal/db/migrations/` are applied automatically on startup
+- Add new migrations as sequentially numbered SQL files
+
+### Agent archetypes
+
+Archetypes in `archetypes/` define agent behavior as markdown. Each file is the system prompt for that role. Changes to archetypes affect how agents approach work on next dispatch.
+
+### UI
+
+Templates use Go `html/template` with HTMX attributes for interactivity. Tailwind CSS via CDN. No build step -- edit HTML, restart server, refresh browser.
+
+## Running tests
+
+```bash
+# All tests
+go test ./...
+
+# Specific package
+go test ./internal/db/...
+go test ./internal/handlers/...
+go test ./internal/scheduler/...
+```
+
+Tests use in-memory SQLite databases -- no setup required.
+
+## Secret scanning
+
+We use [gitleaks](https://github.com/gitleaks/gitleaks) locally to prevent accidental credential commits.
+
+```bash
+# Install
 brew install gitleaks
 
-# Go install
-go install github.com/zricethezav/gitleaks/v8@latest
+# Scan repo
+make gl
 
-# Or download a binary from https://github.com/gitleaks/gitleaks/releases
-```
-
-**Run a scan manually:**
-
-```bash
-# Scan the entire repo
-gitleaks detect --source . -v
-
-# Scan only staged changes (useful before committing)
+# Scan staged changes only
 gitleaks protect --staged -v
 ```
 
-**Set up as a pre-commit hook (recommended):**
+Configuration is in `.gitleaks.toml`. It allowlists test files and known placeholder values. If gitleaks flags a false positive, add a `// gitleaks:allow` inline comment or update the allowlist in `.gitleaks.toml`.
 
-```bash
-# Create or edit .git/hooks/pre-commit
-cat > .git/hooks/pre-commit << 'EOF'
-#!/bin/sh
-gitleaks protect --staged -v
-EOF
-chmod +x .git/hooks/pre-commit
-```
+## Guidelines
 
-After this, every `git commit` will automatically scan staged files for secrets.
-
-### Configuration
-
-The project includes a `.gitleaks.toml` configuration file at the repository root. This file:
-- Extends the default gitleaks ruleset
-- Adds custom rules for secondorder-specific patterns (`so_` API keys, Telegram bot tokens)
-- Allowlists test files (`_test.go`, `testdata/`, `fixtures/`) and known test placeholder values
-- Allowlists `go.sum` hashes which are not secrets
-
-You can also use `make scan` to run a full repo scan.
-
-### CI Integration
-
-Gitleaks runs automatically on every push and pull request via GitHub Actions. The workflow is defined in `.github/workflows/ci.yml`. If the scan finds a potential secret, the CI check will fail and block the PR.
-
-### Handling False Positives
-
-If gitleaks flags something that is not a real secret (e.g., a test fixture, a hash constant, example placeholder), you have two options:
-
-**Option 1: Inline allowlist comment**
-
-Add a `gitleaks:allow` comment on the line:
-
-```go
-testAPIKey := "test-key-not-real-abc123" // gitleaks:allow
-```
-
-**Option 2: Update `.gitleaks.toml`**
-
-Add the path or pattern to the allowlist in `.gitleaks.toml`:
-
-```toml
-[allowlist]
-  paths = [
-    '''testdata/.*''',
-  ]
-```
-
-When adding allowlist entries:
-1. Verify the flagged value is genuinely not a secret
-2. Prefer the narrowest possible allowlist rule (inline comment > specific path > broad pattern)
-3. Add a comment in `.gitleaks.toml` explaining why the entry is allowed
-
-### What To Do If You Accidentally Commit a Secret
-
-1. **Do not push.** If you haven't pushed yet, amend the commit to remove the secret.
-2. **If already pushed:** Rotate the secret immediately. Treat it as compromised regardless of how quickly you act.
-3. Contact the team so the old credential can be revoked.
-4. Use `git filter-repo` or BFG Repo-Cleaner to remove the secret from history if needed.
-
-### Tool Documentation
-
-- Gitleaks GitHub: https://github.com/gitleaks/gitleaks
-- Gitleaks configuration reference: https://github.com/gitleaks/gitleaks#configuration
-- OWASP secrets management cheat sheet: https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html
+- Keep it simple. Single binary, zero external dependencies at runtime.
+- No new runtime dependencies without strong justification.
+- Server-rendered HTML. No JavaScript frameworks.
+- Budget enforcement is infrastructure, not optional. Cost checks happen at the scheduler level.
+- Agent archetypes are the primary lever for behavior change -- prefer archetype edits over code changes when possible.
