@@ -15,7 +15,7 @@ On first run, bootstraps a default org: CEO + 5 agents (engineer, product, desig
 
 ## Secondorder vs Paperclip
 
-secondorder is inspired by [Paperclip](https://github.com/msoedov/paperclip), our TypeScript predecessor. Same mental model, radically different ops story.
+secondorder is inspired by [Paperclip](https://github.com/msoedov/paperclip). Same mental model, radically different ops story.
 
 |  | secondorder | Paperclip |
 |--|-------------|-----------|
@@ -28,6 +28,7 @@ secondorder is inspired by [Paperclip](https://github.com/msoedov/paperclip), ou
 | **Work blocks** | Sprint-like grouping with lifecycle (proposed -> active -> shipped) | No coordination primitive |
 | **Change diffs** | Config versioning with full diff between revisions and one-click rollback | No version history |
 | **Agent templates** | 21 built-in archetypes (CEO, engineer, QA, designer, etc.), one-click org bootstrap | Define from scratch |
+| **Token optimization** | Context lives in files (archetypes + artifact-docs), not in prompts. Minimal token usage per dispatch | Full context in every prompt |
 | **Self-bootstrapped** | secondorder was human-written and then bootstrapped by its own agents | Human-written? |
 | **Cross-compile** | `GOOS=linux go build` | Dockerfile per platform |
 | **Database** | Embedded SQLite (pure Go, no CGO) | PostgreSQL or SQLite via Prisma |
