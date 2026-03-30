@@ -650,6 +650,27 @@ func (d *DB) ListActivity(limit int) ([]models.ActivityLog, error) {
 	return logs, rows.Err()
 }
 
+func (d *DB) ActivityHeatmap(days int) (map[string]int, error) {
+	since := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+	rows, err := d.Query(`SELECT date(created_at) as day, count(*) as cnt
+		FROM activity_log WHERE date(created_at) >= ? GROUP BY day`, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	m := make(map[string]int)
+	for rows.Next() {
+		var day string
+		var cnt int
+		if err := rows.Scan(&day, &cnt); err != nil {
+			return nil, err
+		}
+		m[day] = cnt
+	}
+	return m, rows.Err()
+}
+
 // --- Dashboard ---
 
 func (d *DB) GetDashboardStats() (*models.DashboardStats, error) {
@@ -1088,6 +1109,64 @@ func (d *DB) GetRecentCompletedIssues(limit int) ([]models.Issue, error) {
 		issues = append(issues, i)
 	}
 	return issues, rows.Err()
+}
+
+// --- Cron Jobs ---
+
+func (d *DB) CreateCronJob(c *models.CronJob) error {
+	if c.ID == "" {
+		c.ID = uuid.NewString()
+	}
+	now := time.Now()
+	c.CreatedAt = now
+	c.UpdatedAt = now
+	c.Active = true
+	_, err := d.Exec(`INSERT INTO cron_jobs (id, agent_id, task, frequency, active, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		c.ID, c.AgentID, c.Task, c.Frequency, c.Active, c.CreatedAt, c.UpdatedAt)
+	return err
+}
+
+func (d *DB) ListCronJobs() ([]models.CronJob, error) {
+	rows, err := d.Query(`SELECT c.id, c.agent_id, COALESCE(a.name, ''), c.task, c.frequency, c.active, c.last_run_at, c.created_at, c.updated_at
+		FROM cron_jobs c LEFT JOIN agents a ON c.agent_id = a.id ORDER BY c.created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []models.CronJob
+	for rows.Next() {
+		var c models.CronJob
+		if err := rows.Scan(&c.ID, &c.AgentID, &c.AgentName, &c.Task, &c.Frequency, &c.Active, &c.LastRunAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, c)
+	}
+	return jobs, rows.Err()
+}
+
+func (d *DB) GetCronJob(id string) (*models.CronJob, error) {
+	c := &models.CronJob{}
+	err := d.QueryRow(`SELECT c.id, c.agent_id, COALESCE(a.name, ''), c.task, c.frequency, c.active, c.last_run_at, c.created_at, c.updated_at
+		FROM cron_jobs c LEFT JOIN agents a ON c.agent_id = a.id WHERE c.id=?`, id).Scan(
+		&c.ID, &c.AgentID, &c.AgentName, &c.Task, &c.Frequency, &c.Active, &c.LastRunAt, &c.CreatedAt, &c.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func (d *DB) UpdateCronJob(c *models.CronJob) error {
+	c.UpdatedAt = time.Now()
+	_, err := d.Exec(`UPDATE cron_jobs SET agent_id=?, task=?, frequency=?, active=?, updated_at=? WHERE id=?`,
+		c.AgentID, c.Task, c.Frequency, c.Active, c.UpdatedAt, c.ID)
+	return err
+}
+
+func (d *DB) DeleteCronJob(id string) error {
+	_, err := d.Exec(`DELETE FROM cron_jobs WHERE id=?`, id)
+	return err
 }
 
 // --------------- Settings ---------------

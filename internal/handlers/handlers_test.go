@@ -572,6 +572,45 @@ func TestBoardCommentReopensIssue(t *testing.T) {
 	}
 }
 
+func TestNotFound(t *testing.T) {
+	d := testDB(t)
+	ui := testUI(t, d)
+
+	tests := []struct {
+		name       string
+		accept     string
+		wantCode   int
+		wantHTML   bool
+	}{
+		{"html request", "text/html", 404, true},
+		{"json request", "application/json", 404, false},
+		{"no accept header", "", 404, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/nonexistent", nil)
+			if tt.accept != "" {
+				req.Header.Set("Accept", tt.accept)
+			}
+			w := httptest.NewRecorder()
+			ui.NotFound(w, req)
+
+			if w.Code != tt.wantCode {
+				t.Errorf("status = %d, want %d", w.Code, tt.wantCode)
+			}
+			body := w.Body.String()
+			hasHTML := strings.Contains(body, "Page not found")
+			if hasHTML != tt.wantHTML {
+				t.Errorf("html content present = %v, want %v", hasHTML, tt.wantHTML)
+			}
+			if tt.wantHTML && !strings.Contains(body, "/dashboard") {
+				t.Error("expected back link to /dashboard")
+			}
+		})
+	}
+}
+
 // Ensure DB path comes from temp for test isolation
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())

@@ -608,7 +608,59 @@ func (u *UI) updateWorkBlockUI(w http.ResponseWriter, r *http.Request, id string
 
 func (u *UI) ActivityPage(w http.ResponseWriter, r *http.Request) {
 	logs, _ := u.db.ListActivity(200)
-	u.render(w, "activity", map[string]any{"Logs": logs})
+	heatmap, _ := u.db.ActivityHeatmap(91)
+
+	type HeatmapDay struct {
+		Date  string
+		Count int
+		Level int // 0-4 intensity
+	}
+
+	now := time.Now()
+	today := now.Truncate(24 * time.Hour)
+	endDay := today.AddDate(0, 0, int(6-today.Weekday()))
+	startDay := endDay.AddDate(0, 0, -13*7+1)
+
+	maxCount := 0
+	for _, c := range heatmap {
+		if c > maxCount {
+			maxCount = c
+		}
+	}
+
+	var weeks [][]HeatmapDay
+	var week []HeatmapDay
+	for d := startDay; !d.After(endDay); d = d.AddDate(0, 0, 1) {
+		ds := d.Format("2006-01-02")
+		cnt := heatmap[ds]
+		level := 0
+		if cnt > 0 && maxCount > 0 {
+			ratio := float64(cnt) / float64(maxCount)
+			switch {
+			case ratio > 0.75:
+				level = 4
+			case ratio > 0.5:
+				level = 3
+			case ratio > 0.25:
+				level = 2
+			default:
+				level = 1
+			}
+		}
+		week = append(week, HeatmapDay{Date: ds, Count: cnt, Level: level})
+		if len(week) == 7 {
+			weeks = append(weeks, week)
+			week = nil
+		}
+	}
+	if len(week) > 0 {
+		weeks = append(weeks, week)
+	}
+
+	u.render(w, "activity", map[string]any{
+		"Logs":         logs,
+		"HeatmapWeeks": weeks,
+	})
 }
 
 func (u *UI) PoliciesPage(w http.ResponseWriter, r *http.Request) {
@@ -936,6 +988,19 @@ func (u *UI) CronAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/crons", http.StatusSeeOther)
+}
+
+func (u *UI) NotFound(w http.ResponseWriter, r *http.Request) {
+	if strings.Contains(r.Header.Get("Accept"), "text/html") {
+		w.WriteHeader(http.StatusNotFound)
+		u.render(w, "not_found", map[string]any{
+			"Title":   "Page not found",
+			"Message": "The page you're looking for doesn't exist or has been moved.",
+			"BackURL": "/dashboard",
+		})
+		return
+	}
+	http.NotFound(w, r)
 }
 
 func (u *UI) render(w http.ResponseWriter, name string, data any) {

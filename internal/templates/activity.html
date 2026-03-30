@@ -8,6 +8,30 @@
       <p class="text-[13px] text-ink3/50 mt-0.5">Recent actions across the organization</p>
     </div>
 
+    {{if .HeatmapWeeks}}
+    <div class="bg-card border border-bd rounded-lg p-4 mb-6 fade-in overflow-x-auto">
+      <p class="text-[11px] text-ink3/50 mb-3 font-medium uppercase tracking-wider">13 weeks</p>
+      <div class="flex gap-[3px]">
+        {{range .HeatmapWeeks}}
+        <div class="flex flex-col gap-[3px]">
+          {{range .}}
+          <div class="w-[11px] h-[11px] rounded-[2px] heatmap-{{.Level}}" title="{{.Date}}: {{.Count}} actions"></div>
+          {{end}}
+        </div>
+        {{end}}
+      </div>
+      <div class="flex items-center gap-1.5 mt-3">
+        <span class="text-[10px] text-ink3/40">Less</span>
+        <div class="w-[11px] h-[11px] rounded-[2px] heatmap-0"></div>
+        <div class="w-[11px] h-[11px] rounded-[2px] heatmap-1"></div>
+        <div class="w-[11px] h-[11px] rounded-[2px] heatmap-2"></div>
+        <div class="w-[11px] h-[11px] rounded-[2px] heatmap-3"></div>
+        <div class="w-[11px] h-[11px] rounded-[2px] heatmap-4"></div>
+        <span class="text-[10px] text-ink3/40">More</span>
+      </div>
+    </div>
+    {{end}}
+
     {{if .Logs}}
     <div class="bg-card border border-bd rounded-lg divide-y divide-sf overflow-hidden fade-in">
       {{range .Logs}}

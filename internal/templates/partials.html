@@ -58,6 +58,13 @@
 }
 body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
 
+/* Activity heatmap */
+.heatmap-0 { background: rgb(var(--c-sf)); }
+.heatmap-1 { background: rgb(var(--c-ac) / 0.25); }
+.heatmap-2 { background: rgb(var(--c-ac) / 0.50); }
+.heatmap-3 { background: rgb(var(--c-ac) / 0.75); }
+.heatmap-4 { background: rgb(var(--c-ac)); }
+
 /* Toast animations */
 .toast-enter { animation: toastIn 0.3s cubic-bezier(0.21, 1.02, 0.73, 1) forwards; }
 .toast-exit { animation: toastOut 0.2s ease-in forwards; }
@@ -240,6 +247,18 @@ td.diff-code .hljs-type, td.diff-code .hljs-title.class_ { color: #f69d50; }
     {{end}}
 
     {{define "foot"}}
+    <!-- Confirm modal -->
+    <div id="confirm-modal" class="fixed inset-0 z-50 hidden" onclick="if(event.target===this)closeConfirm(false)">
+      <div class="absolute inset-0 bg-code/30 backdrop-blur-sm palette-overlay"></div>
+      <div class="confirm-panel relative mx-auto mt-32 w-full max-w-sm bg-card rounded-lg border border-bd shadow-2xl p-5">
+        <p id="confirm-message" class="text-sm text-ink mb-5"></p>
+        <div class="flex justify-end gap-2">
+          <button onclick="closeConfirm(false)" class="px-4 py-2 text-sm font-medium rounded-md bg-sf border border-bd text-ink3 hover:text-ink hover:bg-pg transition-colors">Cancel</button>
+          <button id="confirm-ok" onclick="closeConfirm(true)" class="px-4 py-2 text-sm font-medium rounded-md bg-red-600 hover:bg-red-500 text-white transition-colors">Delete</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Toast container -->
     <div id="toasts"
       class="fixed bottom-4 right-4 z-50 space-y-2 max-w-sm"></div>
@@ -333,7 +352,7 @@ function togglePalette() {
 }
 document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); togglePalette(); }
-  if (e.key === 'Escape') closePalette();
+  if (e.key === 'Escape') { if (!document.getElementById('confirm-modal').classList.contains('hidden')) closeConfirm(false); else closePalette(); }
 });
 
 let palIdx = -1;
@@ -449,6 +468,38 @@ if (!document.getElementById('toast-progress-style')) {
     });
   });
 })();
+
+/* Confirm modal */
+let _confirmResolve = null;
+function showConfirm(message, {variant = 'danger'} = {}) {
+  return new Promise(resolve => {
+    _confirmResolve = resolve;
+    const modal = document.getElementById('confirm-modal');
+    document.getElementById('confirm-message').textContent = message;
+    const btn = document.getElementById('confirm-ok');
+    btn.className = variant === 'danger'
+      ? 'px-4 py-2 text-sm font-medium rounded-md bg-red-600 hover:bg-red-500 text-white transition-colors'
+      : 'px-4 py-2 text-sm font-medium rounded-md bg-emerald-600 hover:bg-emerald-500 text-white transition-colors';
+    btn.textContent = variant === 'danger' ? 'Delete' : 'Confirm';
+    modal.classList.remove('hidden');
+    modal.querySelector('.confirm-panel').style.animation = 'paletteIn 0.15s cubic-bezier(0.16,1,0.3,1) forwards';
+    btn.focus();
+  });
+}
+function closeConfirm(result) {
+  const modal = document.getElementById('confirm-modal');
+  const panel = modal.querySelector('.confirm-panel');
+  panel.style.animation = 'paletteIn 0.1s ease-in reverse forwards';
+  panel.addEventListener('animationend', () => {
+    modal.classList.add('hidden');
+    panel.style.animation = '';
+    if (_confirmResolve) { _confirmResolve(result); _confirmResolve = null; }
+  }, { once: true });
+}
+function confirmSubmit(form, message, opts) {
+  showConfirm(message, opts).then(ok => { if (ok) form.submit(); });
+  return false;
+}
 
 /* A11Y: Mark active nav link with aria-current */
 (function() {
