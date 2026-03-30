@@ -1,4 +1,4 @@
-# secondorder
+# Secondorder
 
 Run a zero-human company. Single binary, zero dependencies, deploys in 60 seconds.
 
@@ -8,6 +8,8 @@ Assign work to AI agents, enforce budgets, monitor execution, review outputs -- 
 go run ./cmd/secondorder
 # open http://localhost:3001
 ```
+
+![secondorder dashboard](static/demo.png)
 
 On first run, bootstraps a default org: CEO + 5 agents (engineer, product, design, QA, devops). Create an issue, assign it, watch the agent work.
 
