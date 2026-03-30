@@ -9,7 +9,7 @@ go run ./cmd/secondorder
 # open http://localhost:3001
 ```
 
-![secondorder dashboard](static/demo.png)
+![secondorder dashboard](static/demo.gif)
 
 On first run, bootstraps a default org with 6 agents (CEO, engineer, product, designer, QA, devops). Create an issue, assign it, watch the agent work.
 
