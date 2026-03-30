@@ -1,16 +1,19 @@
-BINARY_NAME=thelastorg
+BINARY_NAME=secondorder
 BUILD_DIR=.
 
-.PHONY: build test run clean lint scan
+.PHONY: build test run clean lint scan install
 
 build:
-	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/thelastorg
+	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/secondorder
 
 test:
 	go test ./...
 
 run: build
 	./$(BINARY_NAME)
+
+install: build
+	cp $(BUILD_DIR)/$(BINARY_NAME) /usr/local/bin/$(BINARY_NAME)
 
 clean:
 	rm -f $(BUILD_DIR)/$(BINARY_NAME)
@@ -19,5 +22,5 @@ clean:
 lint:
 	golangci-lint run ./...
 
-scan:
+gl:
 	gitleaks detect --source . -v
