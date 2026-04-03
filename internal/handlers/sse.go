@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 )
 
@@ -32,7 +33,17 @@ func (h *SSEHub) Close() {
 func (h *SSEHub) Broadcast(event, data string) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	msg := fmt.Sprintf("event: %s\ndata: %s\n\n", event, data)
+
+	var msg string
+	if event != "" {
+		msg += fmt.Sprintf("event: %s\n", event)
+	}
+	lines := strings.Split(data, "\n")
+	for _, line := range lines {
+		msg += fmt.Sprintf("data: %s\n", line)
+	}
+	msg += "\n"
+
 	for ch := range h.clients {
 		select {
 		case ch <- msg:

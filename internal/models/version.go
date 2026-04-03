@@ -1,0 +1,4 @@
+package models
+
+// Version is the current version of the application.
+const Version = "v0.1.0"

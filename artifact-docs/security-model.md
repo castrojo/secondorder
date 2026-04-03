@@ -67,16 +67,15 @@ Authorization goes beyond key validity — the API enforces that an agent can on
 
 ### Checkout enforcement
 
-`POST /api/v1/issues/{key}/checkout` calls `db.CheckoutIssue(key, agent.ID, expectedStatuses)`. The DB query atomically:
+`POST /api/v1/issues/{key}/checkout` calls `db.CheckoutIssue(key, agent.ID, expectedStatuses)`. The handler first verifies that the issue is not assigned to another agent (unless the caller is the CEO). The DB query then atomically:
 - checks the issue is in an expected status (default: `todo`, `backlog`)
 - sets `assignee_agent_id` to the requesting agent
 
 ### Issue update ownership check (`internal/handlers/api.go:129`):
 
 ```go
-if agent != nil && issue.AssigneeAgentID != nil &&
-    *issue.AssigneeAgentID != agent.ID && agent.ArchetypeSlug != "ceo" {
-    jsonError(w, "forbidden: issue assigned to another agent", http.StatusForbidden)
+if agent.ArchetypeSlug != "ceo" && (issue.AssigneeAgentID == nil || *issue.AssigneeAgentID != agent.ID) {
+    jsonError(w, "forbidden: issue not assigned to you", http.StatusForbidden)
     return
 }
 ```
@@ -84,7 +83,12 @@ if agent != nil && issue.AssigneeAgentID != nil &&
 Rules:
 - An agent can only update issues assigned to itself.
 - The `ceo` archetype is the single exception — it can update any issue (for delegation and escalation).
-- Unassigned issues can be updated by any authenticated agent.
+- Unassigned issues can only be updated by the CEO (agents must `checkout` first).
+
+### Create comment ownership check (`internal/handlers/api.go:253`):
+
+The same rules apply to `POST /api/v1/issues/{key}/comments`:
+- Only the assigned agent or the CEO can add comments to an issue.
 
 ### Revocation on new run
 

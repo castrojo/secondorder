@@ -2,6 +2,15 @@ package models
 
 import "testing"
 
+func TestVersion(t *testing.T) {
+	if Version == "" {
+		t.Error("Version should not be empty")
+	}
+	if Version[0] != 'v' {
+		t.Errorf("Version %q should start with 'v'", Version)
+	}
+}
+
 func TestIssueStatusConstants(t *testing.T) {
 	tests := []struct {
 		name     string

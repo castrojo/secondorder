@@ -97,6 +97,45 @@ func TestSSEHubBroadcastDropsSlow(t *testing.T) {
 	hub.Broadcast("test", "data")
 }
 
+func TestLogActivityHelper(t *testing.T) {
+	d := testDB(t)
+	hub := NewSSEHub()
+	defer hub.Close()
+	tmpl, _ := templates.Parse()
+
+	ch := make(chan string, 1)
+	hub.mu.Lock()
+	hub.clients[ch] = struct{}{}
+	hub.mu.Unlock()
+
+	details := "test action"
+	err := LogActivityAndBroadcast(d, hub, tmpl, "test_action", "issue", "SO-1", nil, details)
+	if err != nil {
+		t.Fatalf("logActivity error: %v", err)
+	}
+
+	// Verify it's in DB
+	logs, err := d.ListActivity(1, 0)
+	if err != nil || len(logs) == 0 {
+		t.Fatalf("not found in DB: %v", err)
+	}
+	if logs[0].Action != "test_action" {
+		t.Errorf("DB action = %q, want test_action", logs[0].Action)
+	}
+
+	// Verify broadcast
+	select {
+	case msg := <-ch:
+		if !strings.Contains(msg, "event: activity_log_created") {
+			t.Errorf("broadcast event missing: %q", msg)
+		}
+		if !strings.Contains(msg, details) {
+			t.Errorf("broadcast data missing details: %q", msg)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for broadcast")
+	}
+}
 func TestSSEHubClose(t *testing.T) {
 	hub := NewSSEHub()
 	ch := make(chan string, 1)
@@ -125,7 +164,7 @@ func TestAuthMissingKey(t *testing.T) {
 	d := testDB(t)
 	hub := NewSSEHub()
 	defer hub.Close()
-	api := NewAPI(d, hub, nil, &stubTelegram{})
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
 
 	handler := api.Auth(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -144,7 +183,7 @@ func TestAuthInvalidKey(t *testing.T) {
 	d := testDB(t)
 	hub := NewSSEHub()
 	defer hub.Close()
-	api := NewAPI(d, hub, nil, &stubTelegram{})
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
 
 	handler := api.Auth(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -178,7 +217,7 @@ func TestAuthValidKey(t *testing.T) {
 	d.CreateAPIKey(agent.ID, keyHash, "so_test_ke")
 
 	var gotAgent *models.Agent
-	api := NewAPI(d, hub, nil, &stubTelegram{})
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
 	handler := api.Auth(func(w http.ResponseWriter, r *http.Request) {
 		gotAgent = agentFromContext(r.Context())
 		w.WriteHeader(http.StatusOK)
@@ -234,7 +273,7 @@ func TestCreateIssueDuplicateDetection(t *testing.T) {
 	d := testDB(t)
 	hub := NewSSEHub()
 	defer hub.Close()
-	api := NewAPI(d, hub, nil, &stubTelegram{})
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
 
 	// Create an agent + API key for auth
 	agent := &models.Agent{
@@ -616,42 +655,110 @@ func TestSettingsVersion(t *testing.T) {
 	d := testDB(t)
 	ui := testUI(t, d)
 
-	// Create a temporary VERSION file in the current directory for the test
-	// Note: The code reads from "VERSION" in the working directory
-	versionFile := "VERSION_test"
-	if err := os.WriteFile(versionFile, []byte("v1.2.3-test"), 0644); err != nil {
-		t.Fatalf("failed to create version file: %v", err)
+	req := httptest.NewRequest("GET", "/settings", nil)
+	w := httptest.NewRecorder()
+	ui.Settings(w, req)
+
+	if !strings.Contains(w.Body.String(), models.Version) {
+		t.Errorf("body missing version %q", models.Version)
 	}
-	defer os.Remove(versionFile)
+}
 
-	// We need to temporarily mock the file read or change the working directory
-	// But since the handler uses os.ReadFile("VERSION"), we can just rename the file
-	// during the test if we are careful, but that's risky.
-	// Alternatively, we can just check if it's there.
+func TestAgentUI_Validation(t *testing.T) {
+	d := testDB(t)
+	ui := testUI(t, d)
 
-	// Let's try a simpler approach: check if it reads from "VERSION"
-	if _, err := os.Stat("VERSION"); err == nil {
-		// VERSION exists, let's see if it's in the output
-		content, _ := os.ReadFile("VERSION")
-		wantVersion := strings.TrimSpace(string(content))
+	// dummy archetype
+	os.MkdirAll("archetypes", 0755)
+	os.WriteFile("archetypes/fullstack.md", []byte("test"), 0644)
+	defer os.RemoveAll("archetypes")
 
-		req := httptest.NewRequest("GET", "/settings", nil)
-		w := httptest.NewRecorder()
-		ui.Settings(w, req)
-
-		if !strings.Contains(w.Body.String(), wantVersion) {
-			t.Errorf("body missing version %q", wantVersion)
-		}
-	} else {
-		// If VERSION doesn't exist, it should fallback to "dev" or build info
-		req := httptest.NewRequest("GET", "/settings", nil)
-		w := httptest.NewRecorder()
-		ui.Settings(w, req)
-
-		if !strings.Contains(w.Body.String(), "dev") && !strings.Contains(w.Body.String(), "v") {
-			t.Error("body missing default version")
-		}
+	tests := []struct {
+		name       string
+		runner     string
+		model      string
+		wantStatus int
+	}{
+		{"Valid Claude Code", "claude_code", "sonnet", http.StatusSeeOther},
+		{"Invalid Claude Code", "claude_code", "gpt-4o", http.StatusBadRequest},
+		{"Valid Codex", "codex", "gpt-4o", http.StatusSeeOther},
+		{"Invalid Codex", "codex", "sonnet", http.StatusBadRequest},
+		{"Valid Antigravity", "antigravity", "default", http.StatusSeeOther},
+		{"Invalid Antigravity", "antigravity", "sonnet", http.StatusBadRequest},
+		{"Valid Gemini", "gemini", "gemini-1.5-pro", http.StatusSeeOther},
+		{"Invalid Gemini", "gemini", "sonnet", http.StatusBadRequest},
 	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			form := fmt.Sprintf("name=Test+%s&runner=%s&model=%s&archetype_slug=fullstack", tt.name, tt.runner, tt.model)
+			req := httptest.NewRequest("POST", "/agents", strings.NewReader(form))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w := httptest.NewRecorder()
+
+			ui.ListAgents(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d", w.Code, tt.wantStatus)
+			}
+		})
+	}
+
+	// Test update validation
+	t.Run("Update validation", func(t *testing.T) {
+		// Create a valid agent first
+		form := "name=ValidAgent&runner=claude_code&model=sonnet&archetype_slug=fullstack"
+		req := httptest.NewRequest("POST", "/agents", strings.NewReader(form))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		ui.ListAgents(w, req)
+
+		if w.Code != http.StatusSeeOther {
+			t.Fatalf("setup create: status = %d, want 303", w.Code)
+		}
+
+		// Try to update with invalid model for the same runner
+		updateForm := "runner=claude_code&model=gpt-4o"
+		req = httptest.NewRequest("POST", "/agents/validagent", strings.NewReader(updateForm))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.SetPathValue("slug", "validagent")
+		w = httptest.NewRecorder()
+		ui.AgentDetail(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("update invalid model: status = %d, want 400", w.Code)
+		}
+
+		// Try to update with invalid runner for current model
+		// Current model is 'sonnet' (from create), if we change runner to 'codex' it should fail
+		updateForm = "runner=codex"
+		req = httptest.NewRequest("POST", "/agents/validagent", strings.NewReader(updateForm))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.SetPathValue("slug", "validagent")
+		w = httptest.NewRecorder()
+		ui.AgentDetail(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("update invalid runner: status = %d, want 400", w.Code)
+		}
+
+		// Try to update with valid gemini runner and model
+		updateForm = "runner=gemini&model=gemini-1.5-pro"
+		req = httptest.NewRequest("POST", "/agents/validagent", strings.NewReader(updateForm))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.SetPathValue("slug", "validagent")
+		w = httptest.NewRecorder()
+		ui.AgentDetail(w, req)
+
+		if w.Code != http.StatusSeeOther {
+			t.Errorf("update valid gemini: status = %d, want 303", w.Code)
+		}
+
+		agent, _ := d.GetAgentBySlug("validagent")
+		if agent.Runner != "gemini" || agent.Model != "gemini-1.5-pro" {
+			t.Errorf("agent not updated correctly: runner=%s, model=%s", agent.Runner, agent.Model)
+		}
+	})
 }
 
 func TestAgentUI_CreateAndUpdate(t *testing.T) {
@@ -735,7 +842,7 @@ func TestUpdateIssue_ForbiddenForNonAssignee(t *testing.T) {
 	d := testDB(t)
 	hub := NewSSEHub()
 	defer hub.Close()
-	api := NewAPI(d, hub, nil, &stubTelegram{})
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
 
 	owner, _ := createAgentWithKey(t, d, "Owner", "owner", "backend")
 	other, otherKey := createAgentWithKey(t, d, "Other", "other", "frontend")
@@ -760,7 +867,7 @@ func TestUpdateIssue_CEOCanUpdateAnyIssue(t *testing.T) {
 	d := testDB(t)
 	hub := NewSSEHub()
 	defer hub.Close()
-	api := NewAPI(d, hub, nil, &stubTelegram{})
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
 
 	owner, _ := createAgentWithKey(t, d, "Owner", "owner2", "backend")
 	_, ceoKey := createAgentWithKey(t, d, "CEO", "ceo", "ceo")
@@ -784,7 +891,7 @@ func TestUpdateIssue_AssigneeCanUpdate(t *testing.T) {
 	d := testDB(t)
 	hub := NewSSEHub()
 	defer hub.Close()
-	api := NewAPI(d, hub, nil, &stubTelegram{})
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
 
 	owner, ownerKey := createAgentWithKey(t, d, "Owner3", "owner3", "backend")
 
@@ -809,7 +916,7 @@ func TestAuth_NoKey_Returns401(t *testing.T) {
 	d := testDB(t)
 	hub := NewSSEHub()
 	defer hub.Close()
-	api := NewAPI(d, hub, nil, &stubTelegram{})
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
 
 	req := httptest.NewRequest("PATCH", "/api/v1/issues/SO-1", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -825,7 +932,7 @@ func TestAuth_InvalidKey_Returns401(t *testing.T) {
 	d := testDB(t)
 	hub := NewSSEHub()
 	defer hub.Close()
-	api := NewAPI(d, hub, nil, &stubTelegram{})
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
 
 	req := httptest.NewRequest("PATCH", "/api/v1/issues/SO-1", strings.NewReader(`{}`))
 	req.Header.Set("Authorization", "Bearer totally-wrong-key")
@@ -847,7 +954,7 @@ func TestUpdateIssue_Reassign(t *testing.T) {
 	d := testDB(t)
 	hub := NewSSEHub()
 	defer hub.Close()
-	api := NewAPI(d, hub, nil, &stubTelegram{})
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
 
 	owner, _ := createAgentWithKey(t, d, "Owner", "owner", "backend")
 	newAssignee, _ := createAgentWithKey(t, d, "NewAssignee", "new-assignee", "frontend")
@@ -903,3 +1010,169 @@ func TestUpdateIssue_Reassign(t *testing.T) {
 		t.Errorf("status = %d, want 404", w.Code)
 	}
 }
+
+func TestUpdateIssue_ForbiddenIfUnassigned(t *testing.T) {
+	d := testDB(t)
+	hub := NewSSEHub()
+	defer hub.Close()
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
+
+	_, agentKey := createAgentWithKey(t, d, "Agent", "agent", "backend")
+
+	issue := &models.Issue{Key: "SO-1", Title: "T", Status: "todo", AssigneeAgentID: nil}
+	d.CreateIssue(issue)
+
+	req := httptest.NewRequest("PATCH", "/api/v1/issues/SO-1", strings.NewReader(`{"status":"in_progress"}`))
+	req.Header.Set("Authorization", "Bearer "+agentKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("key", "SO-1")
+	w := httptest.NewRecorder()
+	api.Auth(api.UpdateIssue)(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", w.Code)
+	}
+}
+
+func TestCreateComment_ForbiddenForNonAssignee(t *testing.T) {
+	d := testDB(t)
+	hub := NewSSEHub()
+	defer hub.Close()
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
+
+	owner, _ := createAgentWithKey(t, d, "Owner", "owner", "backend")
+	_, otherKey := createAgentWithKey(t, d, "Other", "other", "frontend")
+
+	issue := &models.Issue{Key: "SO-1", Title: "T", Status: "in_progress", AssigneeAgentID: &owner.ID}
+	d.CreateIssue(issue)
+
+	req := httptest.NewRequest("POST", "/api/v1/issues/SO-1/comments", strings.NewReader(`{"body":"hello"}`))
+	req.Header.Set("Authorization", "Bearer "+otherKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("key", "SO-1")
+	w := httptest.NewRecorder()
+	api.Auth(api.CreateComment)(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", w.Code)
+	}
+}
+
+func TestCreateComment_AssigneeCanComment(t *testing.T) {
+	d := testDB(t)
+	hub := NewSSEHub()
+	defer hub.Close()
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
+
+	owner, ownerKey := createAgentWithKey(t, d, "Owner", "owner", "backend")
+
+	issue := &models.Issue{Key: "SO-1", Title: "T", Status: "in_progress", AssigneeAgentID: &owner.ID}
+	d.CreateIssue(issue)
+
+	req := httptest.NewRequest("POST", "/api/v1/issues/SO-1/comments", strings.NewReader(`{"body":"hello"}`))
+	req.Header.Set("Authorization", "Bearer "+ownerKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("key", "SO-1")
+	w := httptest.NewRecorder()
+	api.Auth(api.CreateComment)(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestCreateComment_CEOCanCommentAnywhere(t *testing.T) {
+	d := testDB(t)
+	hub := NewSSEHub()
+	defer hub.Close()
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
+
+	owner, _ := createAgentWithKey(t, d, "Owner", "owner", "backend")
+	_, ceoKey := createAgentWithKey(t, d, "CEO", "ceo", "ceo")
+
+	issue := &models.Issue{Key: "SO-1", Title: "T", Status: "in_progress", AssigneeAgentID: &owner.ID}
+	d.CreateIssue(issue)
+
+	req := httptest.NewRequest("POST", "/api/v1/issues/SO-1/comments", strings.NewReader(`{"body":"hello"}`))
+	req.Header.Set("Authorization", "Bearer "+ceoKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("key", "SO-1")
+	w := httptest.NewRecorder()
+	api.Auth(api.CreateComment)(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestCheckoutIssue_ForbiddenIfAssignedToOther(t *testing.T) {
+	d := testDB(t)
+	hub := NewSSEHub()
+	defer hub.Close()
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
+
+	owner, _ := createAgentWithKey(t, d, "Owner", "owner", "backend")
+	_, otherKey := createAgentWithKey(t, d, "Other", "other", "frontend")
+
+	issue := &models.Issue{Key: "SO-1", Title: "T", Status: "todo", AssigneeAgentID: &owner.ID}
+	d.CreateIssue(issue)
+
+	req := httptest.NewRequest("POST", "/api/v1/issues/SO-1/checkout", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer "+otherKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("key", "SO-1")
+	w := httptest.NewRecorder()
+	api.Auth(api.CheckoutIssue)(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", w.Code)
+	}
+}
+
+func TestCheckoutIssue_CanCheckoutIfUnassigned(t *testing.T) {
+	d := testDB(t)
+	hub := NewSSEHub()
+	defer hub.Close()
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
+
+	_, agentKey := createAgentWithKey(t, d, "Agent", "agent", "backend")
+
+	issue := &models.Issue{Key: "SO-1", Title: "T", Status: "todo", AssigneeAgentID: nil}
+	d.CreateIssue(issue)
+
+	req := httptest.NewRequest("POST", "/api/v1/issues/SO-1/checkout", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer "+agentKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("key", "SO-1")
+	w := httptest.NewRecorder()
+	api.Auth(api.CheckoutIssue)(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestCheckoutIssue_CEOCanCheckoutAssignedToOther(t *testing.T) {
+	d := testDB(t)
+	hub := NewSSEHub()
+	defer hub.Close()
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
+
+	owner, _ := createAgentWithKey(t, d, "Owner", "owner", "backend")
+	_, ceoKey := createAgentWithKey(t, d, "CEO", "ceo", "ceo")
+
+	issue := &models.Issue{Key: "SO-1", Title: "T", Status: "todo", AssigneeAgentID: &owner.ID}
+	d.CreateIssue(issue)
+
+	req := httptest.NewRequest("POST", "/api/v1/issues/SO-1/checkout", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer "+ceoKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("key", "SO-1")
+	w := httptest.NewRecorder()
+	api.Auth(api.CheckoutIssue)(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+

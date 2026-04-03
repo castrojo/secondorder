@@ -16,8 +16,9 @@
     .chart-legend { display: flex; gap: 12px; align-items: center; }
     .legend-item { display: flex; gap: 5px; align-items: center; font-size: 11px; color: rgb(var(--c-ink3) / 0.6); }
     .legend-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
-    .legend-swatch.created  { background: rgb(var(--c-sf)); border: 1px solid rgb(var(--c-bd)); }
-    .legend-swatch.completed { background: rgb(var(--c-ac)); }
+    .legend-swatch.creations { background: rgb(var(--c-sf)); border: 1px solid rgb(var(--c-bd)); }
+    .legend-swatch.updates   { background: #60a5fa; }
+    .legend-swatch.checkouts { background: rgb(var(--c-ac)); }
     .chart-area { display: flex; gap: 8px; }
     .y-ticks { display: flex; flex-direction: column; justify-content: space-between; height: 120px; padding-bottom: 0; }
     .y-tick { font-size: 9px; color: rgb(var(--c-ink3) / 0.4); line-height: 1; text-align: right; width: 18px; }
@@ -26,10 +27,11 @@
     .day-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; position: relative; height: 100%; z-index: 1; }
     .day-col:hover .day-highlight { opacity: 1; }
     .day-highlight { position: absolute; inset: 0 2px 0 2px; background: rgb(var(--c-ink) / 0.03); border-radius: 4px; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
-    .bar-pair { display: flex; align-items: flex-end; gap: 2px; width: 100%; padding: 0 3px; height: 100%; justify-content: center; }
-    .bar { flex: 1; max-width: 14px; border-radius: 3px 3px 0 0; min-height: 2px; position: relative; transition: filter 0.1s; cursor: default; }
-    .bar.created { background: rgb(var(--c-sf)); border: 1px solid rgb(var(--c-bd)); border-bottom: none; }
-    .bar.completed { background: rgb(var(--c-ac)); }
+    .bar-pair { display: flex; align-items: flex-end; gap: 1px; width: 100%; padding: 0 1px; height: 100%; justify-content: center; }
+    .bar { flex: 1; max-width: 10px; border-radius: 2px 2px 0 0; min-height: 2px; position: relative; transition: filter 0.1s; cursor: default; }
+    .bar.creations { background: rgb(var(--c-sf)); border: 1px solid rgb(var(--c-bd)); border-bottom: none; }
+    .bar.updates   { background: #60a5fa; }
+    .bar.checkouts { background: rgb(var(--c-ac)); }
     .bar:hover { filter: brightness(0.9); }
     .bar-tooltip { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); white-space: nowrap; background: rgb(var(--c-ink)); color: rgb(var(--c-pg)); font-size: 10px; padding: 3px 7px; border-radius: 4px; z-index: 10; pointer-events: none; line-height: 1.5; }
     .bar-tooltip::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 4px solid transparent; border-top-color: rgb(var(--c-ink)); }
@@ -47,21 +49,25 @@
     {{if .DailyStats}}
     <div class="chart-card fade-in overflow-x-auto">
       <div class="chart-header">
-        <span class="chart-title">Issues per day — last 14 days</span>
+        <span class="chart-title">Activity per day — last 14 days</span>
         <div class="chart-legend">
-          <div class="legend-item"><div class="legend-swatch created"></div>Created</div>
-          <div class="legend-item"><div class="legend-swatch completed"></div>Completed</div>
+          <div class="legend-item"><div class="legend-swatch creations"></div>Creation</div>
+          <div class="legend-item"><div class="legend-swatch updates"></div>Updates</div>
+          <div class="legend-item"><div class="legend-swatch checkouts"></div>Checkout</div>
         </div>
       </div>
 
       {{$maxVal := 1}}
-      {{$totalCreated := 0}}
-      {{$totalCompleted := 0}}
+      {{$totalCreations := 0}}
+      {{$totalUpdates := 0}}
+      {{$totalCheckouts := 0}}
       {{range .DailyStats}}
-        {{$maxVal = max $maxVal .Created}}
-        {{$maxVal = max $maxVal .Completed}}
-        {{$totalCreated = add $totalCreated .Created}}
-        {{$totalCompleted = add $totalCompleted .Completed}}
+        {{$maxVal = max $maxVal .Creations}}
+        {{$maxVal = max $maxVal .Updates}}
+        {{$maxVal = max $maxVal .Checkouts}}
+        {{$totalCreations = add $totalCreations .Creations}}
+        {{$totalUpdates = add $totalUpdates .Updates}}
+        {{$totalCheckouts = add $totalCheckouts .Checkouts}}
       {{end}}
       {{$niceMax := mult (ceil (div $maxVal 4)) 4}}
 
@@ -76,15 +82,18 @@
         <div style="flex:1">
           <div class="chart-body">
             {{range $i, $d := .DailyStats}}
-            {{$cH := mult (div $d.Created $niceMax) 120 | ceil}}
-            {{if and (gt $d.Created 0) (lt $cH 2)}}{{$cH = 2}}{{end}}
-            {{$cpH := mult (div $d.Completed $niceMax) 120 | ceil}}
-            {{if and (gt $d.Completed 0) (lt $cpH 2)}}{{$cpH = 2}}{{end}}
+            {{$cH := mult (div $d.Creations $niceMax) 120 | ceil}}
+            {{if and (gt $d.Creations 0) (lt $cH 2)}}{{$cH = 2}}{{end}}
+            {{$uH := mult (div $d.Updates $niceMax) 120 | ceil}}
+            {{if and (gt $d.Updates 0) (lt $uH 2)}}{{$uH = 2}}{{end}}
+            {{$ckH := mult (div $d.Checkouts $niceMax) 120 | ceil}}
+            {{if and (gt $d.Checkouts 0) (lt $ckH 2)}}{{$ckH = 2}}{{end}}
             <div class="day-col">
               <div class="day-highlight"></div>
               <div class="bar-pair">
-                <div class="bar created" style="height:{{$cH}}px"><div class="bar-tooltip">Created: {{$d.Created}}</div></div>
-                <div class="bar completed" style="height:{{$cpH}}px"><div class="bar-tooltip">Completed: {{$d.Completed}}</div></div>
+                <div class="bar creations" style="height:{{$cH}}px"><div class="bar-tooltip">Creation: {{$d.Creations}}</div></div>
+                <div class="bar updates" style="height:{{$uH}}px"><div class="bar-tooltip">Updates: {{$d.Updates}}</div></div>
+                <div class="bar checkouts" style="height:{{$ckH}}px"><div class="bar-tooltip">Checkout: {{$d.Checkouts}}</div></div>
               </div>
             </div>
             {{end}}
@@ -98,29 +107,21 @@
       </div>
 
       <div class="summary-row">
-        <div class="summary-stat"><span class="summary-value">{{$totalCreated}}</span><span class="summary-label">created</span></div>
+        <div class="summary-stat"><span class="summary-value">{{$totalCreations}}</span><span class="summary-label">creation</span></div>
         <div class="summary-divider"></div>
-        <div class="summary-stat"><span class="summary-value">{{$totalCompleted}}</span><span class="summary-label">completed</span></div>
+        <div class="summary-stat"><span class="summary-value">{{$totalUpdates}}</span><span class="summary-label">updates</span></div>
+        <div class="summary-divider"></div>
+        <div class="summary-stat"><span class="summary-value">{{$totalCheckouts}}</span><span class="summary-label">checkout</span></div>
       </div>
     </div>
     {{end}}
 
     {{if .Logs}}
-    <div class="bg-card border border-bd rounded-lg divide-y divide-sf overflow-hidden fade-in mb-6">
+    <div id="activity-feed" 
+         class="bg-card border border-bd rounded-lg divide-y divide-sf overflow-hidden fade-in mb-6"
+         hx-ext="sse" sse-connect="/events" sse-swap="activity_log_created" hx-swap="afterbegin">
       {{range .Logs}}
-      <div class="flex items-center gap-3 px-4 py-2.5">
-        <span class="text-[11px] text-ink3/50 tabular-nums shrink-0 w-16">{{timeAgo .CreatedAt}}</span>
-        <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-bd text-ink2 shrink-0">{{.Action}}</span>
-        <span class="text-[11px] text-ink3/50 shrink-0">{{.EntityType}}</span>
-        {{if eq .EntityType "issue"}}
-        <a href="/issues/{{.EntityID}}" class="font-mono text-xs text-ac-t hover:text-ac-t shrink-0">{{.EntityID}}</a>
-        {{else if eq .EntityType "work_block"}}
-        <a href="/work-blocks/{{.EntityID}}" class="font-mono text-xs text-ac-t hover:text-ac-t shrink-0">{{truncate .EntityID 8}}</a>
-        {{else}}
-        <span class="font-mono text-xs text-ink3 shrink-0">{{truncate .EntityID 8}}</span>
-        {{end}}
-        {{if .Details}}<span class="text-[13px] text-ink3 truncate flex-1">{{truncate .Details 80}}</span>{{end}}
-      </div>
+        {{template "activity_entry" .}}
       {{end}}
     </div>
 
@@ -163,3 +164,19 @@
   </div>
 </main>
 {{template "foot" .}}
+
+{{define "activity_entry"}}
+<div class="flex items-center gap-3 px-4 py-2.5 htmx-added">
+<span class="text-[11px] text-ink3/50 tabular-nums shrink-0 w-16">{{timeAgo .CreatedAt}}</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-bd text-ink2 shrink-0">{{.Action}}</span>
+<span class="text-[11px] text-ink3/50 shrink-0">{{.EntityType}}</span>
+{{if eq .EntityType "issue"}}
+<a href="/issues/{{.EntityID}}" class="font-mono text-xs text-ac-t hover:text-ac-t shrink-0">{{.EntityID}}</a>
+{{else if eq .EntityType "work_block"}}
+<a href="/work-blocks/{{.EntityID}}" class="font-mono text-xs text-ac-t hover:text-ac-t shrink-0">{{shortID .EntityID}}</a>
+{{else}}
+<span class="font-mono text-xs text-ink3 shrink-0">{{shortID .EntityID}}</span>
+{{end}}
+{{if .Details}}<span class="text-[13px] text-ink3 truncate flex-1">{{truncate .Details 80}}</span>{{end}}
+</div>
+{{end}}

@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/msoedov/secondorder/internal/db"
 	"github.com/msoedov/secondorder/internal/models"
+	"html/template"
 )
 
 type TelegramNotifier interface {
@@ -23,12 +24,13 @@ type TelegramNotifier interface {
 type API struct {
 	db       *db.DB
 	sse      *SSEHub
+	tmpl     *template.Template
 	wake     func(agent *models.Agent, issue *models.Issue)
 	telegram TelegramNotifier
 }
 
-func NewAPI(database *db.DB, sse *SSEHub, wake func(*models.Agent, *models.Issue), tg TelegramNotifier) *API {
-	return &API{db: database, sse: sse, wake: wake, telegram: tg}
+func NewAPI(database *db.DB, sse *SSEHub, tmpl *template.Template, wake func(*models.Agent, *models.Issue), tg TelegramNotifier) *API {
+	return &API{db: database, sse: sse, tmpl: tmpl, wake: wake, telegram: tg}
 }
 
 // Auth middleware extracts agent from API key
@@ -82,6 +84,17 @@ func (a *API) CheckoutIssue(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	agent := agentFromContext(r.Context())
 
+	issue, err := a.db.GetIssue(key)
+	if err != nil {
+		jsonError(w, "issue not found", http.StatusNotFound)
+		return
+	}
+
+	if agent.ArchetypeSlug != "ceo" && issue.AssigneeAgentID != nil && *issue.AssigneeAgentID != agent.ID {
+		jsonError(w, "forbidden: issue assigned to another agent", http.StatusForbidden)
+		return
+	}
+
 	var body struct {
 		AgentID          string   `json:"agentId"`
 		ExpectedStatuses []string `json:"expectedStatuses"`
@@ -99,7 +112,16 @@ func (a *API) CheckoutIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.db.LogActivity("checkout", "issue", key, &agent.ID, "")
+	// SSE broadcast
+	checkoutData, _ := json.Marshal(map[string]string{
+		"key":      key,
+		"status":   "in_progress",
+		"assignee": agent.Name,
+	})
+	a.sse.Broadcast("issue_updated", string(checkoutData))
+
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
+"checkout", "issue", key, &agent.ID, "")
 	jsonOK(w, map[string]string{"status": "checked_out"})
 }
 
@@ -127,8 +149,8 @@ func (a *API) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	agent := agentFromContext(r.Context())
 
 	// Ownership check: only the assignee (or CEO) may update an issue
-	if agent != nil && issue.AssigneeAgentID != nil && *issue.AssigneeAgentID != agent.ID && agent.ArchetypeSlug != "ceo" {
-		jsonError(w, "forbidden: issue assigned to another agent", http.StatusForbidden)
+	if agent.ArchetypeSlug != "ceo" && (issue.AssigneeAgentID == nil || *issue.AssigneeAgentID != agent.ID) {
+		jsonError(w, "forbidden: issue not assigned to you", http.StatusForbidden)
 		return
 	}
 
@@ -162,6 +184,14 @@ func (a *API) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// SSE broadcast
+	updateData, _ := json.Marshal(map[string]string{
+		"key":    key,
+		"status": issue.Status,
+		"title":  issue.Title,
+	})
+	a.sse.Broadcast("issue_updated", string(updateData))
+
 	// Add comment if provided
 	if body.Comment != "" {
 		agentName := "Board"
@@ -189,7 +219,8 @@ func (a *API) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	a.db.LogActivity("update", "issue", key, ptrStr(agent), body.Status)
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
+"update", "issue", key, ptrStr(agent), body.Status)
 
 	// Wake chain on status change
 	if body.Status == models.StatusDone || body.Status == models.StatusBlocked || body.Status == models.StatusInReview {
@@ -246,13 +277,32 @@ func (a *API) DeleteIssue(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	a.db.LogActivity("delete", "issue", key, nil, "")
+
+	// SSE broadcast
+	deleteData, _ := json.Marshal(map[string]string{
+		"key": key,
+	})
+	a.sse.Broadcast("issue_deleted", string(deleteData))
+
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
+"delete", "issue", key, nil, "")
 	jsonOK(w, map[string]string{"deleted": key})
 }
 
 func (a *API) CreateComment(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	agent := agentFromContext(r.Context())
+
+	issue, err := a.db.GetIssue(key)
+	if err != nil {
+		jsonError(w, "issue not found", http.StatusNotFound)
+		return
+	}
+
+	if agent.ArchetypeSlug != "ceo" && (issue.AssigneeAgentID == nil || *issue.AssigneeAgentID != agent.ID) {
+		jsonError(w, "forbidden: issue not assigned to you", http.StatusForbidden)
+		return
+	}
 
 	var body struct {
 		Body string `json:"body"`
@@ -354,8 +404,17 @@ func (a *API) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// SSE broadcast
+	createData, _ := json.Marshal(map[string]string{
+		"key":    key,
+		"title":  issue.Title,
+		"status": issue.Status,
+	})
+	a.sse.Broadcast("issue_created", string(createData))
+
 	agent := agentFromContext(r.Context())
-	a.db.LogActivity("create", "issue", key, ptrStr(agent), body.Title)
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
+"create", "issue", key, ptrStr(agent), body.Title)
 
 	// Wake assigned agent
 	if assignee != nil && a.wake != nil {
@@ -517,7 +576,8 @@ func (a *API) CreateWorkBlock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agent := agentFromContext(r.Context())
-	a.db.LogActivity("create", "work_block", wb.ID, ptrStr(agent), body.Title)
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
+"create", "work_block", wb.ID, ptrStr(agent), body.Title)
 
 	if a.telegram != nil {
 		go a.telegram.SendWorkBlockApproval(wb.ID, wb.Title, wb.Goal, "proposed")
@@ -543,7 +603,8 @@ func (a *API) UpdateWorkBlock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agent := agentFromContext(r.Context())
-	a.db.LogActivity("update", "work_block", id, ptrStr(agent), body.Status)
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
+"update", "work_block", id, ptrStr(agent), body.Status)
 
 	jsonOK(w, map[string]string{"status": body.Status})
 }
@@ -563,8 +624,19 @@ func (a *API) AssignIssueToBlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// SSE broadcast
+	if issue, err := a.db.GetIssue(body.IssueKey); err == nil {
+		updateData, _ := json.Marshal(map[string]string{
+			"key":    body.IssueKey,
+			"status": issue.Status,
+			"title":  issue.Title,
+		})
+		a.sse.Broadcast("issue_updated", string(updateData))
+	}
+
 	agent := agentFromContext(r.Context())
-	a.db.LogActivity("assign_to_block", "issue", body.IssueKey, ptrStr(agent), id)
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
+"assign_to_block", "issue", body.IssueKey, ptrStr(agent), id)
 
 	jsonOK(w, map[string]string{"status": "assigned"})
 }
@@ -602,7 +674,8 @@ func (a *API) CreateArchetypePatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agent := agentFromContext(r.Context())
-	a.db.LogActivity("propose_patch", "archetype", body.AgentSlug, ptrStr(agent), "")
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
+"propose_patch", "archetype", body.AgentSlug, ptrStr(agent), "")
 
 	w.WriteHeader(http.StatusCreated)
 	jsonOK(w, patch)
@@ -615,8 +688,19 @@ func (a *API) UnassignIssueFromBlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// SSE broadcast
+	if issue, err := a.db.GetIssue(key); err == nil {
+		updateData, _ := json.Marshal(map[string]string{
+			"key":    key,
+			"status": issue.Status,
+			"title":  issue.Title,
+		})
+		a.sse.Broadcast("issue_updated", string(updateData))
+	}
+
 	agent := agentFromContext(r.Context())
-	a.db.LogActivity("unassign_from_block", "issue", key, ptrStr(agent), "")
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
+"unassign_from_block", "issue", key, ptrStr(agent), "")
 
 	jsonOK(w, map[string]string{"status": "unassigned"})
 }

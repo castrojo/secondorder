@@ -78,13 +78,20 @@ func (u *UI) ListIssues(w http.ResponseWriter, r *http.Request) {
 	}
 	issues, _ := u.db.ListIssues(dbStatus, 100)
 	agents, _ := u.db.ListAgents()
-	u.render(w, "issues", map[string]any{
+
+	data := map[string]any{
 		"Issues":        issues,
 		"Agents":        agents,
 		"CurrentStatus": status,
 		"Error":         r.URL.Query().Get("error"),
 		"Success":       r.URL.Query().Get("success"),
-	})
+	}
+
+	if r.Header.Get("HX-Request") != "" {
+		u.render(w, "issue_list", data)
+		return
+	}
+	u.render(w, "issues", data)
 }
 
 func (u *UI) createIssueUI(w http.ResponseWriter, r *http.Request) {
@@ -132,7 +139,16 @@ func (u *UI) createIssueUI(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/issues?error=Failed+to+create+issue", http.StatusSeeOther)
 		return
 	}
-	u.db.LogActivity("create", "issue", key, nil, title)
+
+	// SSE broadcast
+	createData, _ := json.Marshal(map[string]string{
+		"key":    key,
+		"title":  issue.Title,
+		"status": issue.Status,
+	})
+	u.sse.Broadcast("issue_created", string(createData))
+
+	LogActivityAndBroadcast(u.db, u.sse, u.tmpl, "create", "issue", key, nil, title)
 
 	if assignee != nil && u.wake != nil {
 		go u.wake(assignee, issue)
@@ -285,6 +301,14 @@ func (u *UI) updateIssueUI(w http.ResponseWriter, r *http.Request, key string) {
 		u.db.UpdateIssue(issue)
 	}
 
+	// SSE broadcast
+	updateData, _ := json.Marshal(map[string]string{
+		"key":    key,
+		"status": issue.Status,
+		"title":  issue.Title,
+	})
+	u.sse.Broadcast("issue_updated", string(updateData))
+
 	http.Redirect(w, r, "/issues/"+key, http.StatusSeeOther)
 }
 
@@ -329,10 +353,16 @@ func (u *UI) createAgentUI(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt:     time.Now(),
 	}
 	if agent.Runner == "" {
-		agent.Runner = "claude_code"
+		agent.Runner = models.RunnerClaudeCode
 	}
 	if agent.Model == "" {
-		agent.Model = "sonnet"
+		if m, ok := models.RunnerModels[agent.Runner]; ok && len(m) > 0 {
+			agent.Model = m[0]
+		}
+	}
+	if !models.IsValidModelForRunner(agent.Runner, agent.Model) {
+		http.Error(w, fmt.Sprintf("invalid model %q for runner %q", agent.Model, agent.Runner), http.StatusBadRequest)
+		return
 	}
 	if agent.ArchetypeSlug == "" {
 		agent.ArchetypeSlug = "other"
@@ -406,6 +436,10 @@ func (u *UI) updateAgentUI(w http.ResponseWriter, r *http.Request, slug string) 
 	if rn := r.FormValue("runner"); rn != "" {
 		agent.Runner = rn
 	}
+	if !models.IsValidModelForRunner(agent.Runner, agent.Model) {
+		http.Error(w, fmt.Sprintf("invalid model %q for runner %q", agent.Model, agent.Runner), http.StatusBadRequest)
+		return
+	}
 	agent.ApiKeyEnv = r.FormValue("api_key_env")
 	if wd := r.FormValue("working_dir"); wd != "" {
 		agent.WorkingDir = wd
@@ -453,6 +487,14 @@ func (u *UI) AgentAssign(w http.ResponseWriter, r *http.Request) {
 
 	issue.AssigneeAgentID = &agent.ID
 	u.db.UpdateIssue(issue)
+
+	// SSE broadcast
+	updateData, _ := json.Marshal(map[string]string{
+		"key":    issueKey,
+		"status": issue.Status,
+		"title":  issue.Title,
+	})
+	u.sse.Broadcast("issue_updated", string(updateData))
 
 	if u.wake != nil {
 		go u.wake(agent, issue)
@@ -598,11 +640,27 @@ func (u *UI) updateWorkBlockUI(w http.ResponseWriter, r *http.Request, id string
 		issueKey := r.FormValue("issue_key")
 		if issueKey != "" {
 			u.db.AssignIssueToWorkBlock(issueKey, id)
+			if issue, err := u.db.GetIssue(issueKey); err == nil {
+				updateData, _ := json.Marshal(map[string]string{
+					"key":    issueKey,
+					"status": issue.Status,
+					"title":  issue.Title,
+				})
+				u.sse.Broadcast("issue_updated", string(updateData))
+			}
 		}
 	case "unassign_issue":
 		issueKey := r.FormValue("issue_key")
 		if issueKey != "" {
 			u.db.UnassignIssueFromWorkBlock(issueKey)
+			if issue, err := u.db.GetIssue(issueKey); err == nil {
+				updateData, _ := json.Marshal(map[string]string{
+					"key":    issueKey,
+					"status": issue.Status,
+					"title":  issue.Title,
+				})
+				u.sse.Broadcast("issue_updated", string(updateData))
+			}
 		}
 	}
 
@@ -832,14 +890,7 @@ func (u *UI) Settings(w http.ResponseWriter, r *http.Request) {
 
 	settings, _ := u.db.GetAllSettings()
 
-	version := "dev"
-	if v, err := os.ReadFile("VERSION"); err == nil {
-		version = strings.TrimSpace(string(v))
-	} else if info, ok := debug.ReadBuildInfo(); ok {
-		if info.Main.Version != "" && info.Main.Version != "(devel)" {
-			version = info.Main.Version
-		}
-	}
+	version := models.Version
 
 	goVersion := "unknown"
 	if info, ok := debug.ReadBuildInfo(); ok {

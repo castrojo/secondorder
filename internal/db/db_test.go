@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/msoedov/secondorder/internal/models"
 )
 
@@ -1351,19 +1352,23 @@ func TestGetActiveBoardPoliciesOnlyReturnsActive(t *testing.T) {
 func TestGetDailyActivityStats(t *testing.T) {
 	d := testDB(t)
 
-	// Create issues on specific dates
+	// Log activities on specific dates
 	// Today
-	d.CreateIssue(&models.Issue{Key: "SO-1", Title: "T1"})
+	d.LogActivity("create", "issue", "SO-1", nil, "T1")
+	d.LogActivity("update", "issue", "SO-1", nil, "in_progress")
+	d.LogActivity("checkout", "issue", "SO-1", nil, "")
 	
 	// Yesterday
 	yesterday := time.Now().Add(-24 * time.Hour).UTC().Format("2006-01-02 15:04:05")
-	d.CreateIssue(&models.Issue{Key: "SO-2", Title: "T2"})
-	d.Exec(`UPDATE issues SET created_at=?, completed_at=?, status='done' WHERE key='SO-2'`, yesterday, yesterday)
+	d.Exec(`INSERT INTO activity_log (id, action, entity_type, entity_id, agent_id, details, created_at)
+		VALUES (?, 'create', 'issue', 'SO-2', NULL, 'T2', ?)`, uuid.NewString(), yesterday)
+	d.Exec(`INSERT INTO activity_log (id, action, entity_type, entity_id, agent_id, details, created_at)
+		VALUES (?, 'update', 'issue', 'SO-2', NULL, 'done', ?)`, uuid.NewString(), yesterday)
 
 	// 2 days ago
 	twoDaysAgo := time.Now().Add(-48 * time.Hour).UTC().Format("2006-01-02 15:04:05")
-	d.CreateIssue(&models.Issue{Key: "SO-3", Title: "T3"})
-	d.Exec(`UPDATE issues SET created_at=?, completed_at=?, status='cancelled' WHERE key='SO-3'`, twoDaysAgo, twoDaysAgo)
+	d.Exec(`INSERT INTO activity_log (id, action, entity_type, entity_id, agent_id, details, created_at)
+		VALUES (?, 'checkout', 'issue', 'SO-3', NULL, '', ?)`, uuid.NewString(), twoDaysAgo)
 
 	stats, err := d.GetDailyActivityStats(7)
 	if err != nil {
@@ -1375,16 +1380,17 @@ func TestGetDailyActivityStats(t *testing.T) {
 	}
 
 	// Today is at index 6
-	if stats[6].Created != 1 {
-		t.Errorf("expected 1 created today, got %d", stats[6].Created)
+	if stats[6].Creations != 1 || stats[6].Updates != 1 || stats[6].Checkouts != 1 {
+		t.Errorf("expected 1 creation, 1 update, 1 checkout today, got C:%d, U:%d, CK:%d", 
+			stats[6].Creations, stats[6].Updates, stats[6].Checkouts)
 	}
 	// Yesterday at index 5
-	if stats[5].Created != 1 || stats[5].Completed != 1 {
-		t.Errorf("expected 1 created and 1 completed yesterday, got C:%d, D:%d", stats[5].Created, stats[5].Completed)
+	if stats[5].Creations != 1 || stats[5].Updates != 1 {
+		t.Errorf("expected 1 creation and 1 update yesterday, got C:%d, U:%d", stats[5].Creations, stats[5].Updates)
 	}
 	// 2 days ago at index 4
-	if stats[4].Created != 1 || stats[4].Completed != 1 {
-		t.Errorf("expected 1 created and 1 completed 2 days ago, got C:%d, D:%d", stats[4].Created, stats[4].Completed)
+	if stats[4].Checkouts != 1 {
+		t.Errorf("expected 1 checkout 2 days ago, got %d", stats[4].Checkouts)
 	}
 }
 

@@ -90,26 +90,32 @@
     </div>
 
     <!-- Issue List -->
-    <div class="bg-card border border-bd rounded-lg divide-y divide-sf overflow-hidden fade-in">
-      {{range .Issues}}
-      <a href="/issues/{{.Key}}" class="flex items-center gap-3 px-4 py-2.5 hover:bg-sf transition-all group">
-        <span class="{{statusColor .Status}} inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0">{{statusIcon .Status}}</span>
-        <span class="font-mono text-xs text-ink3/50 w-14 shrink-0 group-hover:text-ac-t transition-colors">{{.Key}}</span>
-        {{if gt .Priority 0}}<span class="text-[11px] {{priorityColor .Priority}} shrink-0">{{priorityLabel .Priority}}</span>{{end}}
-        <span class="text-[13px] text-ink flex-1 truncate" title="{{.Title}}">{{.Title}}</span>
-        {{if .ParentIssueKey}}<span class="text-[11px] text-ink3/50 font-mono shrink-0">^{{deref .ParentIssueKey}}</span>{{end}}
-        {{if .AssigneeName}}<span class="text-[11px] text-ink3/50 bg-sf px-2 py-0.5 rounded shrink-0">{{.AssigneeName}}</span>{{end}}
-        <span class="px-2 py-0.5 rounded text-[11px] font-medium {{statusColor .Status}} shrink-0">{{.Status}}</span>
-        <span class="text-[11px] text-ink3/50 shrink-0 tabular-nums">{{timeAgo .CreatedAt}}</span>
-      </a>
-      {{else}}
-      <div class="px-4 py-16 text-center">
-        <svg class="w-8 h-8 mx-auto text-ink3/30 mb-2" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-        <p class="text-sm text-ink3/50">No issues found</p>
-      </div>
-      {{end}}
+    <div id="issue-list" hx-get="/issues?status={{.CurrentStatus}}" hx-trigger="issue-changed from:body" hx-swap="outerHTML">
+      {{template "issue_list" .}}
     </div>
 
   </div>
 </main>
 {{template "foot" .}}
+
+{{define "issue_list"}}
+<div id="issue-list" hx-get="/issues?status={{.CurrentStatus}}" hx-trigger="issue-changed from:body" hx-swap="outerHTML" class="bg-card border border-bd rounded-lg divide-y divide-sf overflow-hidden fade-in">
+  {{range .Issues}}
+  <a href="/issues/{{.Key}}" class="flex items-center gap-3 px-4 py-2.5 hover:bg-sf transition-all group">
+    <span class="{{statusColor .Status}} inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0">{{statusIcon .Status}}</span>
+    <span class="font-mono text-xs text-ink3/50 w-14 shrink-0 group-hover:text-ac-t transition-colors">{{.Key}}</span>
+    {{if gt .Priority 0}}<span class="text-[11px] {{priorityColor .Priority}} shrink-0">{{priorityLabel .Priority}}</span>{{end}}
+    <span class="text-[13px] text-ink flex-1 truncate" title="{{.Title}}">{{.Title}}</span>
+    {{if .ParentIssueKey}}<span class="text-[11px] text-ink3/50 font-mono shrink-0">^{{deref .ParentIssueKey}}</span>{{end}}
+    {{if .AssigneeName}}<span class="text-[11px] text-ink3/50 bg-sf px-2 py-0.5 rounded shrink-0">{{.AssigneeName}}</span>{{end}}
+    <span class="px-2 py-0.5 rounded text-[11px] font-medium {{statusColor .Status}} shrink-0">{{.Status}}</span>
+    <span class="text-[11px] text-ink3/50 shrink-0 tabular-nums">{{timeAgo .CreatedAt}}</span>
+  </a>
+  {{else}}
+  <div class="px-4 py-16 text-center">
+    <svg class="w-8 h-8 mx-auto text-ink3/30 mb-2" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+    <p class="text-sm text-ink3/50">No issues found</p>
+  </div>
+  {{end}}
+</div>
+{{end}}

@@ -39,6 +39,7 @@
     }
     </script>
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4/dist/ext/sse.js"></script>
     <link rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css">
     <script
@@ -72,6 +73,13 @@
         } else if (runner === 'antigravity') {
             models = [
                 {val: 'default', label: 'Default'}
+            ];
+        } else if (runner === 'gemini') {
+            models = [
+                {val: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash'},
+                {val: 'gemini-2.0-flash-lite', label: 'Gemini 2.0 Flash Lite'},
+                {val: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro'},
+                {val: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash'}
             ];
         }
 
@@ -354,6 +362,22 @@ function connectSSE() {
   sse.addEventListener('comment', e => {
     const d = JSON.parse(e.data);
     showToast(d.author + ' on ' + d.issue_key, d.body.substring(0, 80), '/issues/' + d.issue_key);
+    document.body.dispatchEvent(new CustomEvent('issue-changed', {detail: {key: d.issue_key}}));
+  });
+  sse.addEventListener('issue_created', e => {
+    const d = JSON.parse(e.data);
+    showToast('Issue Created', d.key + ': ' + d.title, '/issues/' + d.key);
+    document.body.dispatchEvent(new CustomEvent('issue-changed', {detail: {key: d.key}}));
+  });
+  sse.addEventListener('issue_updated', e => {
+    const d = JSON.parse(e.data);
+    showToast('Issue Updated', d.key + ' is now ' + d.status, '/issues/' + d.key);
+    document.body.dispatchEvent(new CustomEvent('issue-changed', {detail: {key: d.key}}));
+  });
+  sse.addEventListener('issue_deleted', e => {
+    const d = JSON.parse(e.data);
+    showToast('Issue Deleted', d.key);
+    document.body.dispatchEvent(new CustomEvent('issue-changed', {detail: {key: d.key}}));
   });
   sse.addEventListener('run_complete', e => {
     const d = JSON.parse(e.data);

@@ -531,11 +531,11 @@ func (d *DB) CreateAPIKey(agentID, keyHash, prefix string) error {
 
 func (d *DB) GetAgentByAPIKey(keyHash string) (*models.Agent, error) {
 	a := &models.Agent{}
-	err := d.QueryRow(`SELECT a.id, a.name, a.slug, a.archetype_slug, a.model, a.working_dir, a.max_turns, a.timeout_sec,
+	err := d.QueryRow(`SELECT a.id, a.name, a.slug, a.archetype_slug, a.model, a.runner, a.api_key_env, a.working_dir, a.max_turns, a.timeout_sec,
 		a.heartbeat_enabled, a.heartbeat_cron, a.chrome_enabled, a.reports_to, a.review_agent_id, a.active, a.created_at, a.updated_at
 		FROM api_keys k JOIN agents a ON k.agent_id = a.id
 		WHERE k.key_hash=? AND k.revoked_at IS NULL`, keyHash).Scan(
-		&a.ID, &a.Name, &a.Slug, &a.ArchetypeSlug, &a.Model, &a.WorkingDir, &a.MaxTurns, &a.TimeoutSec,
+		&a.ID, &a.Name, &a.Slug, &a.ArchetypeSlug, &a.Model, &a.Runner, &a.ApiKeyEnv, &a.WorkingDir, &a.MaxTurns, &a.TimeoutSec,
 		&a.HeartbeatEnabled, &a.HeartbeatCron, &a.ChromeEnabled, &a.ReportsTo, &a.ReviewAgentID, &a.Active, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -665,7 +665,7 @@ func (d *DB) IsAgentOverBudget(agentID string) (bool, error) {
 func (d *DB) LogActivity(action, entityType, entityID string, agentID *string, details string) error {
 	_, err := d.Exec(`INSERT INTO activity_log (id, action, entity_type, entity_id, agent_id, details, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		uuid.NewString(), action, entityType, entityID, agentID, details, time.Now().UTC().UTC())
+		uuid.NewString(), action, entityType, entityID, agentID, details, time.Now().UTC().Format("2006-01-02 15:04:05"))
 	return err
 }
 
@@ -744,8 +744,9 @@ func (d *DB) GetDailyActivityStats(days int) ([]models.DailyStat, error) {
 		)
 		SELECT 
 			d.date,
-			(SELECT COUNT(*) FROM issues WHERE DATE(created_at) = d.date) as created,
-			(SELECT COUNT(*) FROM issues WHERE DATE(completed_at) = d.date AND status IN ('done','cancelled','wont_do')) as completed
+			(SELECT COUNT(*) FROM activity_log WHERE DATE(created_at) = d.date AND action = 'update') as updates,
+			(SELECT COUNT(*) FROM activity_log WHERE DATE(created_at) = d.date AND action = 'create') as creations,
+			(SELECT COUNT(*) FROM activity_log WHERE DATE(created_at) = d.date AND action = 'checkout') as checkouts
 		FROM dates d
 		ORDER BY d.date ASC
 	`
@@ -759,7 +760,7 @@ func (d *DB) GetDailyActivityStats(days int) ([]models.DailyStat, error) {
 	for rows.Next() {
 		var s models.DailyStat
 		var dateStr string
-		if err := rows.Scan(&dateStr, &s.Created, &s.Completed); err != nil {
+		if err := rows.Scan(&dateStr, &s.Updates, &s.Creations, &s.Checkouts); err != nil {
 			return nil, err
 		}
 		s.Date = dateStr

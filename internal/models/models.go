@@ -22,6 +22,34 @@ const (
 	RunStatusCancelled = "cancelled"
 )
 
+// Runner types
+const (
+	RunnerClaudeCode   = "claude_code"
+	RunnerGemini       = "gemini"
+	RunnerCodex        = "codex"
+	RunnerAntigravity  = "antigravity"
+)
+
+var RunnerModels = map[string][]string{
+	RunnerClaudeCode:  {"sonnet", "opus", "haiku"},
+	RunnerGemini:      {"gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-1.5-flash"},
+	RunnerCodex:       {"o3", "o4-mini", "gpt-4o"},
+	RunnerAntigravity: {"default"},
+}
+
+func IsValidModelForRunner(runner, model string) bool {
+	models, ok := RunnerModels[runner]
+	if !ok {
+		return false
+	}
+	for _, m := range models {
+		if m == model {
+			return true
+		}
+	}
+	return false
+}
+
 // WorkBlock statuses
 const (
 	WBStatusProposed  = "proposed"
@@ -265,7 +293,8 @@ type DashboardStats struct {
 type DailyStat struct {
 	Date      string `json:"date"`
 	Label     string `json:"label"`
-	Created   int    `json:"created"`
-	Completed int    `json:"completed"`
+	Updates   int    `json:"updates"`
+	Creations int    `json:"creations"`
+	Checkouts int    `json:"checkouts"`
 }
 

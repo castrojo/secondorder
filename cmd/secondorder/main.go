@@ -88,11 +88,17 @@ func main() {
 	// Scheduler
 	portInt := 3001
 	if p, err := parsePort(port); err == nil {
-		portInt = p
+	        portInt = p
 	}
 	sched := scheduler.New(database, portInt)
 
+	// Set activity callback
+	sched.SetOnActivity(func(action, entityType, entityID string, agentID *string, details string) {
+	        handlers.LogActivityAndBroadcast(database, sse, tmpl, action, entityType, entityID, agentID, details)
+	})
+
 	// Wire wake function
+
 	wake := sched.WakeAgent
 
 	// Callbacks
@@ -140,7 +146,8 @@ func main() {
 					log.WithField("block", wb.Title).Info("telegram: block shipped")
 				}
 			} else {
-				database.LogActivity("rejected", "work_block", blockID, nil, "Rejected via Telegram")
+				handlers.LogActivityAndBroadcast(database, sse, tmpl, "rejected", "work_block", blockID, nil, "Rejected via Telegram")
+
 				log.WithField("block", blockID).Info("telegram: block rejected")
 			}
 		}
@@ -152,9 +159,8 @@ func main() {
 	}
 
 	// Handlers
-	api := handlers.NewAPI(database, sse, wake, tg)
+	api := handlers.NewAPI(database, sse, tmpl, wake, tg)
 	ui := handlers.NewUI(database, sse, tmpl, wake, sched)
-
 	// Routes
 	mux := http.NewServeMux()
 
@@ -321,6 +327,12 @@ func applyStartupTemplate(database *db.DB, templateName, defaultModel string) {
 	runner := resolveRunner(defaultModel)
 
 	for _, a := range tmpl.Agents {
+		if !models.IsValidModelForRunner(runner, a.Model) {
+			if m, ok := models.RunnerModels[runner]; ok && len(m) > 0 {
+				a.Model = m[0]
+			}
+		}
+
 		agent := &models.Agent{
 			ID:               uuid.New().String(),
 			Name:             a.Name,

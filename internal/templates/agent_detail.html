@@ -30,19 +30,19 @@
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 stagger">
           <div class="bg-card border border-bd rounded-lg p-3 hover:border-bd transition-colors">
             <div class="text-[11px] text-ink3/50 uppercase tracking-wider">Today Tokens</div>
-            <div class="text-lg font-semibold text-ink mt-1 tabular-nums">{{if eq .Agent.Runner "claude_code"}}{{formatTokens .TodayTokens}}{{else}}N/A{{end}}</div>
+            <div class="text-lg font-semibold text-ink mt-1 tabular-nums">{{if or (eq .Agent.Runner "claude_code") (eq .Agent.Runner "gemini") (eq .Agent.Runner "codex")}}{{formatTokens .TodayTokens}}{{else}}N/A{{end}}</div>
           </div>
           <div class="bg-card border border-bd rounded-lg p-3 hover:border-bd transition-colors">
             <div class="text-[11px] text-ink3/50 uppercase tracking-wider">Today Cost</div>
-            <div class="text-lg font-semibold text-ink mt-1 tabular-nums">{{if eq .Agent.Runner "claude_code"}}{{formatCost .TodayCost}}{{else}}N/A{{end}}</div>
+            <div class="text-lg font-semibold text-ink mt-1 tabular-nums">{{if or (eq .Agent.Runner "claude_code") (eq .Agent.Runner "gemini") (eq .Agent.Runner "codex")}}{{formatCost .TodayCost}}{{else}}N/A{{end}}</div>
           </div>
           <div class="bg-card border border-bd rounded-lg p-3 hover:border-bd transition-colors">
             <div class="text-[11px] text-ink3/50 uppercase tracking-wider">Total Tokens</div>
-            <div class="text-lg font-semibold text-ink mt-1 tabular-nums">{{if eq .Agent.Runner "claude_code"}}{{formatTokens .TotalTokens}}{{else}}N/A{{end}}</div>
+            <div class="text-lg font-semibold text-ink mt-1 tabular-nums">{{if or (eq .Agent.Runner "claude_code") (eq .Agent.Runner "gemini") (eq .Agent.Runner "codex")}}{{formatTokens .TotalTokens}}{{else}}N/A{{end}}</div>
           </div>
           <div class="bg-card border border-bd rounded-lg p-3 hover:border-bd transition-colors">
             <div class="text-[11px] text-ink3/50 uppercase tracking-wider">Total Cost</div>
-            <div class="text-lg font-semibold text-ink mt-1 tabular-nums">{{if eq .Agent.Runner "claude_code"}}{{formatCost .TotalCost}}{{else}}N/A{{end}}</div>
+            <div class="text-lg font-semibold text-ink mt-1 tabular-nums">{{if or (eq .Agent.Runner "claude_code") (eq .Agent.Runner "gemini") (eq .Agent.Runner "codex")}}{{formatCost .TotalCost}}{{else}}N/A{{end}}</div>
           </div>
         </div>
 
@@ -134,6 +134,7 @@
               <label class="text-[11px] text-ink3/50">Runner</label>
               <select id="edit-runner" name="runner" onchange="updateModels('edit-runner', 'edit-model')" class="w-full bg-sf border border-bd rounded-md px-2.5 py-1.5 text-xs text-ink outline-none focus:ring-1 focus:ring-ac">
                 <option value="claude_code" {{if eq .Agent.Runner "claude_code"}}selected{{end}}>Claude Code</option>
+                <option value="gemini" {{if eq .Agent.Runner "gemini"}}selected{{end}}>Gemini</option>
                 <option value="codex" {{if eq .Agent.Runner "codex"}}selected{{end}}>Codex</option>
                 <option value="antigravity" {{if eq .Agent.Runner "antigravity"}}selected{{end}}>Antigravity</option>
               </select>

@@ -30,6 +30,7 @@ type Scheduler struct {
 	stopped      bool
 	onRunComplete func(run *models.Run)
 	onComment     func(issueKey, author, body string)
+	onActivity    func(action, entityType, entityID string, agentID *string, details string)
 }
 
 func New(database *db.DB, port int) *Scheduler {
@@ -46,6 +47,18 @@ func (s *Scheduler) SetOnRunComplete(fn func(run *models.Run)) {
 
 func (s *Scheduler) SetOnComment(fn func(issueKey, author, body string)) {
 	s.onComment = fn
+}
+
+func (s *Scheduler) SetOnActivity(fn func(action, entityType, entityID string, agentID *string, details string)) {
+	s.onActivity = fn
+}
+
+func (s *Scheduler) logActivity(action, entityType, entityID string, agentID *string, details string) {
+	if s.onActivity != nil {
+		s.onActivity(action, entityType, entityID, agentID, details)
+	} else {
+		s.db.LogActivity(action, entityType, entityID, agentID, details)
+	}
 }
 
 func (s *Scheduler) Stop() {
@@ -199,7 +212,7 @@ func (s *Scheduler) spawnAgent(agent *models.Agent, issueKey, mode, prompt strin
 
 		// Parse token usage from stream-json output
 		tokens := parseTokenUsage(stdout)
-		if agent.Runner != "claude_code" && agent.Runner != "" {
+		if agent.Runner != "claude_code" && agent.Runner != "gemini" && agent.Runner != "" {
 			tokens = tokenUsage{}
 		}
 
@@ -841,7 +854,7 @@ func (s *Scheduler) RecoverStuckIssues() int {
 
 	if recovered > 0 {
 		details := fmt.Sprintf("Recovered %d stuck issues on startup (%d stale runs marked failed)", recovered, staleCount)
-		s.db.LogActivity("recovery", "system", "startup", nil, details)
+		s.logActivity("recovery", "system", "startup", nil, details)
 	}
 
 	return recovered
