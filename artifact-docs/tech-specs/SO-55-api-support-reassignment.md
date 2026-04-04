@@ -31,3 +31,6 @@ Update the `UpdateIssue` API handler to support an optional `assignee_slug` fiel
     - Otherwise, lookup the agent by slug using `a.db.GetAgentBySlug`. If not found, return `404 Not Found`.
 3.  The issue is then updated in the database via `a.db.UpdateIssue(issue)`.
 4.  Standard ownership checks remain in place, allowing only the current assignee or the CEO to perform the update.
+5.  Added `assignee_slug` to the SSE `issue_updated` broadcast.
+6.  Added logic to wake the new assignee if an `in_progress` issue is re-assigned.
+7.  Fixed compilation and logic issues in `internal/handlers/handlers_test.go`.

@@ -1,0 +1,11 @@
+{
+  "name": "Agency",
+  "agents": [
+    {"name": "CEO", "slug": "ceo", "archetype_slug": "ceo", "model": "opus", "heartbeat_enabled": true, "chrome_enabled": true},
+    {"name": "Fullstack Engineer", "slug": "fullstack-engineer", "archetype_slug": "fullstack", "model": "haiku", "chrome_enabled": true},
+    {"name": "Designer", "slug": "designer", "archetype_slug": "designer", "model": "haiku", "chrome_enabled": true},
+    {"name": "QA Engineer", "slug": "qa-engineer", "archetype_slug": "qa", "model": "haiku", "chrome_enabled": true},
+    {"name": "Operations", "slug": "operations", "archetype_slug": "operations", "model": "haiku", "chrome_enabled": true},
+    {"name": "Design Partner", "slug": "design-partner", "archetype_slug": "design-partner", "model": "haiku", "chrome_enabled": true}
+  ]
+}

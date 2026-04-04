@@ -64,7 +64,7 @@ Environment injected: `ANTHROPIC_API_KEY` (from `ANTHROPIC_API_KEY` env), plus S
 ### codex
 
 ```
-codex --approval-mode full-auto --quiet -p <prompt>
+codex exec --full-auto --json <prompt>
       [--model <model>]
 ```
 
@@ -74,6 +74,7 @@ codex --approval-mode full-auto --quiet -p <prompt>
 - **Archetype**: injected as `CODEX_SYSTEM_PROMPT` env var (Codex supports system prompt via env)
 - **Max turns**: not directly supported by Codex CLI; omit or map to `--max-steps` if available
 - **Chrome**: not applicable, ignore
+- **Output**: NDJSON (via `--json`), parsed for token usage via `turn.completed` events.
 
 ### antigravity
 

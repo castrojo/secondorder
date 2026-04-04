@@ -8,7 +8,7 @@
 *.out
 
 # Project binary
-secondorder
+/secondorder
 
 # Database
 so.db

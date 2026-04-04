@@ -154,6 +154,8 @@ func (a *API) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	oldAssigneeID := issue.AssigneeAgentID
+
 	if body.Status != "" {
 		issue.Status = body.Status
 	}
@@ -186,9 +188,10 @@ func (a *API) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 
 	// SSE broadcast
 	updateData, _ := json.Marshal(map[string]string{
-		"key":    key,
-		"status": issue.Status,
-		"title":  issue.Title,
+		"key":           key,
+		"status":        issue.Status,
+		"title":         issue.Title,
+		"assignee_slug": ptrStrOrEmpty(body.AssigneeSlug),
 	})
 	a.sse.Broadcast("issue_updated", string(updateData))
 
@@ -219,8 +222,20 @@ func (a *API) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	details := body.Status
+	if body.AssigneeSlug != nil {
+		msg := "reassigned to " + *body.AssigneeSlug
+		if *body.AssigneeSlug == "" {
+			msg = "unassigned"
+		}
+		if details != "" {
+			details += ", " + msg
+		} else {
+			details = msg
+		}
+	}
 	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
-"update", "issue", key, ptrStr(agent), body.Status)
+"update", "issue", key, ptrStr(agent), details)
 
 	// Wake chain on status change
 	if body.Status == models.StatusDone || body.Status == models.StatusBlocked || body.Status == models.StatusInReview {
@@ -229,8 +244,11 @@ func (a *API) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Wake assignee when reviewer sends work back to in_progress
-	if body.Status == models.StatusInProgress && agent != nil && issue.AssigneeAgentID != nil && *issue.AssigneeAgentID != agent.ID {
+	// Wake assignee when reviewer sends work back to in_progress OR when re-assigned in_progress issue
+	isReassignedInProgress := body.AssigneeSlug != nil && issue.Status == models.StatusInProgress && 
+		(oldAssigneeID == nil || (issue.AssigneeAgentID != nil && *oldAssigneeID != *issue.AssigneeAgentID))
+
+	if (body.Status == models.StatusInProgress || isReassignedInProgress) && agent != nil && issue.AssigneeAgentID != nil && *issue.AssigneeAgentID != agent.ID {
 		// Check retry limit
 		runCount, _ := a.db.CountRunsForIssue(key)
 		if runCount > 6 {
@@ -517,6 +535,13 @@ func ptrStr(agent *models.Agent) *string {
 		return nil
 	}
 	return &agent.ID
+}
+
+func ptrStrOrEmpty(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func jsonOK(w http.ResponseWriter, v any) {

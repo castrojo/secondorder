@@ -315,10 +315,17 @@ func (u *UI) updateIssueUI(w http.ResponseWriter, r *http.Request, key string) {
 	}
 
 	// SSE broadcast
+	var assigneeSlug string
+	if issue.AssigneeAgentID != nil {
+		if a, err := u.db.GetAgent(*issue.AssigneeAgentID); err == nil {
+			assigneeSlug = a.Slug
+		}
+	}
 	updateData, _ := json.Marshal(map[string]string{
-		"key":    key,
-		"status": issue.Status,
-		"title":  issue.Title,
+		"key":           key,
+		"status":        issue.Status,
+		"title":         issue.Title,
+		"assignee_slug": assigneeSlug,
 	})
 	u.sse.Broadcast("issue_updated", string(updateData))
 
@@ -524,9 +531,10 @@ func (u *UI) AgentAssign(w http.ResponseWriter, r *http.Request) {
 
 	// SSE broadcast
 	updateData, _ := json.Marshal(map[string]string{
-		"key":    issueKey,
-		"status": issue.Status,
-		"title":  issue.Title,
+		"key":           issueKey,
+		"status":        issue.Status,
+		"title":         issue.Title,
+		"assignee_slug": agent.Slug,
 	})
 	u.sse.Broadcast("issue_updated", string(updateData))
 

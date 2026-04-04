@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/msoedov/secondorder/internal/db"
 	"github.com/msoedov/secondorder/internal/models"
 	"github.com/msoedov/secondorder/internal/templates"
@@ -27,6 +28,10 @@ func testDB(t *testing.T) *db.DB {
 	}
 	t.Cleanup(func() { d.Close() })
 	return d
+}
+
+func ptr[T any](v T) *T {
+	return &v
 }
 
 // --- Context helpers ---
@@ -503,23 +508,14 @@ func TestIssueDetail_EmptySections(t *testing.T) {
 	}
 	body := w.Body.String()
 	
-	// Verify "Sub-issues" section is present
-	if !strings.Contains(body, "Sub-issues") {
-		t.Error("body missing 'Sub-issues' header")
-	}
-	if !strings.Contains(body, "No sub-issues yet") {
-		t.Error("body missing 'No sub-issues yet' placeholder")
-	}
-	if !strings.Contains(body, "Add sub-issue") {
-		t.Error("body missing 'Add sub-issue' CTA")
+	// Verify "Sub-issues" section is NOT present (hidden when empty)
+	if strings.Contains(body, "Sub-issues") {
+		t.Error("body contains 'Sub-issues' header but it should be hidden")
 	}
 
-	// Verify "Runs" section is present
-	if !strings.Contains(body, "Runs") {
-		t.Error("body missing 'Runs' header")
-	}
-	if !strings.Contains(body, "No runs yet") {
-		t.Error("body missing 'No runs yet' placeholder")
+	// Verify "Runs" section is NOT present (hidden when empty)
+	if strings.Contains(body, "Runs") {
+		t.Error("body contains 'Runs' header but it should be hidden")
 	}
 }
 

@@ -221,7 +221,7 @@ func (s *Scheduler) spawnAgent(agent *models.Agent, issueKey, mode, prompt strin
 
 		// Parse token usage from stream-json output
 		tokens := parseTokenUsage(stdout)
-		if agent.Runner != "claude_code" && agent.Runner != "gemini" && agent.Runner != "" {
+		if agent.Runner != "claude_code" && agent.Runner != "gemini" && agent.Runner != "codex" && agent.Runner != "" {
 			tokens = tokenUsage{}
 		}
 
@@ -332,13 +332,14 @@ func (s *Scheduler) execClaudeCode(ctx context.Context, agent *models.Agent, api
 
 func (s *Scheduler) execCodex(ctx context.Context, agent *models.Agent, apiKey, runID, issueKey, prompt string) (string, error) {
 	args := []string{
-		"--approval-mode", "full-auto",
-		"--quiet",
-		"-p", prompt,
+		"exec",
+		"--full-auto",
+		"--json",
 	}
 	if agent.Model != "" && agent.Model != "default" {
 		args = append(args, "--model", agent.Model)
 	}
+	args = append(args, prompt)
 
 	cmd := exec.CommandContext(ctx, "codex", args...)
 	cmd.Dir = agent.WorkingDir
@@ -1060,6 +1061,11 @@ func parseTokenUsage(stdout string) tokenUsage {
 					OutputTokens int64 `json:"output_tokens"`
 				} `json:"models"`
 			} `json:"stats"`
+			Usage struct {
+				InputTokens       int64 `json:"input_tokens"`
+				CachedInputTokens int64 `json:"cached_input_tokens"`
+				OutputTokens      int64 `json:"output_tokens"`
+			} `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
 			continue
@@ -1083,6 +1089,11 @@ func parseTokenUsage(stdout string) tokenUsage {
 					usage.OutputTokens += m.OutputTokens
 				}
 			}
+		} else if msg.Type == "turn.completed" {
+			// Handle codex-cli usage format
+			usage.InputTokens = msg.Usage.InputTokens
+			usage.CacheReadTokens = msg.Usage.CachedInputTokens
+			usage.OutputTokens = msg.Usage.OutputTokens
 		}
 	}
 	return usage

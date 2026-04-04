@@ -199,6 +199,15 @@ func TestParseTokenUsage(t *testing.T) {
 			stdout: "some text\n{\"type\":\"result\",\"result\":{\"input_tokens\":42,\"output_tokens\":10,\"total_cost_usd\":0.01}}\nmore text",
 			want:   tokenUsage{InputTokens: 42, OutputTokens: 10, TotalCostUSD: 0.01},
 		},
+		{
+			name:   "codex turn.completed",
+			stdout: `{"type":"turn.completed","usage":{"input_tokens":92800,"cached_input_tokens":49792,"output_tokens":244}}`,
+			want: tokenUsage{
+				InputTokens:     92800,
+				CacheReadTokens: 49792,
+				OutputTokens:    244,
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -511,14 +520,17 @@ func TestCodexDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execCodex: %v\noutput: %s", err, out)
 	}
-	if !strings.Contains(out, "--approval-mode") {
-		t.Errorf("expected --approval-mode in args, got: %s", out)
+	if !strings.Contains(out, "ARGS: exec") {
+		t.Errorf("expected exec subcommand in args, got: %s", out)
 	}
-	if !strings.Contains(out, "full-auto") {
-		t.Errorf("expected full-auto in args, got: %s", out)
+	if !strings.Contains(out, "--full-auto") {
+		t.Errorf("expected --full-auto in args, got: %s", out)
 	}
-	if !strings.Contains(out, "-p") {
-		t.Errorf("expected -p prompt flag, got: %s", out)
+	if !strings.Contains(out, "--json") {
+		t.Errorf("expected --json in args, got: %s", out)
+	}
+	if !strings.Contains(out, "do work") {
+		t.Errorf("expected prompt in args, got: %s", out)
 	}
 }
 
@@ -653,18 +665,21 @@ func TestTokenZeroingForNonClaude(t *testing.T) {
 	}{
 		{"claude_code", false},
 		{"", false},
-		{"codex", true},
+		{"codex", false},
 		{"antigravity", true},
-		{"gemini", true},
+		{"gemini", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.runner, func(t *testing.T) {
 			agent := &models.Agent{Runner: tt.runner}
 			stdout := `{"type":"result","result":{"input_tokens":100,"output_tokens":50,"total_cost_usd":0.01}}`
+			if tt.runner == "codex" {
+				stdout = `{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":50}}`
+			}
 
 			tokens := parseTokenUsage(stdout)
-			if agent.Runner != "claude_code" && agent.Runner != "" {
+			if agent.Runner != "claude_code" && agent.Runner != "gemini" && agent.Runner != "codex" && agent.Runner != "" {
 				tokens = tokenUsage{}
 			}
 
