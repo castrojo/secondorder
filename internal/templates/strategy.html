@@ -1,0 +1,157 @@
+{{template "head" .}}
+{{template "nav" .}}
+
+<main class="flex-1 md:ml-56 min-w-0">
+  <div class="max-w-layout mx-auto p-4 md:p-8">
+    <header class="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-bold text-ink">Strategy</h1>
+        <p class="text-sm text-ink3 mt-1">Define constitutional goals and monitor alignment.</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <button onclick="document.getElementById('new-apex-modal').classList.remove('hidden')"
+          class="inline-flex items-center gap-2 px-4 py-2 bg-ac hover:bg-ac-h text-white text-sm font-medium rounded-md shadow-sm transition-all active:scale-[0.98]">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          Create Apex Block
+        </button>
+      </div>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <!-- Apex Blocks List -->
+      <div class="lg:col-span-2 space-y-6">
+        {{if not .ApexBlocks}}
+        <div class="bg-card border border-bd rounded-xl p-12 text-center">
+          <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-sf mb-4">
+            <svg class="w-6 h-6 text-ink3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+          </div>
+          <h3 class="text-sm font-medium text-ink">No strategic goals yet</h3>
+          <p class="text-xs text-ink3 mt-1 max-w-[240px] mx-auto">Create your first Apex Block to set the direction for your agents.</p>
+        </div>
+        {{end}}
+
+        {{range .ApexBlocks}}
+        <div class="bg-card border border-bd rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+          <div class="p-5 border-b border-bd flex items-start justify-between">
+            <div>
+              <div class="flex items-center gap-3 mb-2">
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider {{if eq .Status "active"}}bg-emerald-500/10 text-emerald-400 ring-1 ring-inset ring-emerald-500/20{{else}}bg-zinc-500/10 text-zinc-500 ring-1 ring-inset ring-zinc-500/20{{end}}">
+                  {{.Status}}
+                </span>
+                <h2 class="text-lg font-semibold text-ink">{{.Title}}</h2>
+              </div>
+              <p class="text-sm text-ink2 leading-relaxed">{{.Goal}}</p>
+            </div>
+            <div class="flex gap-2">
+              <form method="POST" action="/strategy/apex/{{.ID}}">
+                <input type="hidden" name="action" value="toggle_status">
+                <button class="p-1.5 text-ink3 hover:text-ink hover:bg-sf rounded-lg transition-colors" title="Toggle status">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                </button>
+              </form>
+            </div>
+          </div>
+          
+          <div class="p-5 bg-sf/30">
+            <h3 class="text-[10px] font-bold text-ink3 uppercase tracking-widest mb-4">Aligned Work Blocks</h3>
+            <div class="space-y-3">
+              {{range (index $.ApexWorkBlocks .ID)}}
+                <a href="/work-blocks/{{.ID}}" class="flex items-center justify-between p-3 bg-card border border-bd rounded-lg group hover:border-ac/50 transition-colors">
+                  <div class="flex items-center gap-3">
+                    <div class="w-2 h-2 rounded-full {{wbStatusColor .Status}}"></div>
+                    <span class="text-sm text-ink2 group-hover:text-ink font-medium">{{.Title}}</span>
+                  </div>
+                  <div class="flex items-center gap-4">
+                     <span class="text-[10px] {{wbStatusColor .Status}} px-1.5 py-0.5 rounded uppercase">{{.Status}}</span>
+                     <svg class="w-4 h-4 text-ink3 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                  </div>
+                </a>
+              {{else}}
+                <div class="text-center py-4 text-xs text-ink3 italic">No work blocks linked to this goal.</div>
+              {{end}}
+            </div>
+          </div>
+        </div>
+        {{end}}
+      </div>
+
+      <!-- Stats & Meta -->
+      <div class="space-y-6">
+        <div class="bg-card border border-bd rounded-xl p-5">
+          <h3 class="text-sm font-semibold text-ink mb-4">Alignment Score</h3>
+          <div class="relative pt-1">
+            <div class="flex mb-2 items-center justify-between">
+              <div>
+                <span class="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-ac-t bg-ac/10">
+                  Strategic Coverage
+                </span>
+              </div>
+              <div class="text-right">
+                <span class="text-xs font-semibold inline-block text-ac-t">
+                  {{.AlignmentScore}}%
+                </span>
+              </div>
+            </div>
+            <div class="overflow-hidden h-2 mb-4 text-xs flex rounded bg-sf">
+              <div style="width:{{.AlignmentScore}}%" class="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-ac transition-all duration-500"></div>
+            </div>
+          </div>
+          <p class="text-xs text-ink3">
+            {{.AlignmentScore}}% of your Work Blocks are linked to an Apex Block. High alignment ensures agents aren't drifting from core strategy.
+          </p>
+        </div>
+
+        <div class="bg-card border border-bd rounded-xl p-5">
+          <h3 class="text-sm font-semibold text-ink mb-3">Guidelines</h3>
+          <ul class="text-xs text-ink2 space-y-3 leading-relaxed">
+            <li class="flex gap-2">
+              <span class="text-ac font-bold">•</span>
+              <span><strong>Apex Blocks</strong> represent the high-level "Why". They are created by the Board.</span>
+            </li>
+            <li class="flex gap-2">
+              <span class="text-ac font-bold">•</span>
+              <span><strong>Work Blocks</strong> represent the "How". They must align with an Apex Block to be activated.</span>
+            </li>
+            <li class="flex gap-2">
+              <span class="text-ac font-bold">•</span>
+              <span>Agents use these goals to prioritize their own backlogs and make autonomous trade-offs.</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Modal -->
+<div id="new-apex-modal" class="fixed inset-0 z-50 hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="absolute inset-0 bg-code/40 backdrop-blur-sm"></div>
+  <div class="relative mx-auto mt-24 w-full max-w-lg bg-card rounded-xl border border-bd shadow-2xl p-6 fade-in">
+    <div class="flex items-center justify-between mb-6">
+      <h3 class="text-lg font-bold text-ink">New Apex Block</h3>
+      <button onclick="document.getElementById('new-apex-modal').classList.add('hidden')" class="text-ink3 hover:text-ink transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form method="POST" action="/strategy" class="space-y-4">
+      <div>
+        <label class="block text-xs font-bold text-ink3 uppercase tracking-wider mb-1.5">Goal Title</label>
+        <input type="text" name="title" required placeholder="e.g. Market Expansion Q2"
+          class="w-full bg-sf border border-bd rounded-lg px-3 py-2 text-sm text-ink outline-none focus:border-ac transition-colors">
+      </div>
+      <div>
+        <label class="block text-xs font-bold text-ink3 uppercase tracking-wider mb-1.5">Strategic Intent</label>
+        <textarea name="goal" rows="4" required placeholder="What is the constitutional direction for this period?"
+          class="w-full bg-sf border border-bd rounded-lg px-3 py-2 text-sm text-ink outline-none focus:border-ac transition-colors resize-none"></textarea>
+      </div>
+      <div class="pt-2 flex justify-end gap-3">
+        <button type="button" onclick="document.getElementById('new-apex-modal').classList.add('hidden')"
+          class="px-4 py-2 text-sm font-medium rounded-md bg-sf border border-bd text-ink3 hover:text-ink hover:bg-pg transition-colors">Cancel</button>
+        <button type="submit"
+          class="px-4 py-2 text-sm font-medium rounded-md bg-ac hover:bg-ac-h text-white shadow-sm active:scale-[0.98] transition-all">Create Goal</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{{template "foot" .}}

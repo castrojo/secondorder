@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"embed"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,14 +22,13 @@ import (
 	"github.com/msoedov/secondorder/internal/scheduler"
 	"github.com/msoedov/secondorder/internal/telegram"
 	"github.com/msoedov/secondorder/internal/templates"
+	"github.com/msoedov/secondorder/static"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/term"
 )
 
 //go:embed templates/*.json
 var startupTemplatesFS embed.FS
-
-//go:embed all:static
-var staticFS embed.FS
 
 func main() {
 	log.SetFormatter(&log.TextFormatter{FullTimestamp: true})
@@ -39,7 +40,9 @@ func main() {
 	templateName := envOr("TEMPLATE", "startup")
 	archetypes.SetOverridesDir(archetypesDir)
 
-	defaultModel := envOr("MODEL", "")
+	defaultModel := envOr("MODEL", "claude")
+
+	var templateProvided, modelProvided bool
 
 	// CLI: secondorder [-t <template>] [-m <model>] [port]
 	args := os.Args[1:]
@@ -58,6 +61,7 @@ func main() {
 			}
 			i++
 			templateName = args[i]
+			templateProvided = true
 		} else if arg == "--model" || arg == "-m" {
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "error: --model requires a value")
@@ -65,6 +69,7 @@ func main() {
 			}
 			i++
 			defaultModel = args[i]
+			modelProvided = true
 		} else {
 			port = arg
 		}
@@ -176,6 +181,9 @@ func main() {
 
 	// UI routes
 	mux.HandleFunc("GET /dashboard", ui.Dashboard)
+	mux.HandleFunc("GET /strategy", ui.StrategyPage)
+	mux.HandleFunc("POST /strategy", ui.StrategyPage)
+	mux.HandleFunc("POST /strategy/apex/{id}", ui.UpdateApexBlockUI)
 	mux.HandleFunc("GET /issues", ui.ListIssues)
 	mux.HandleFunc("POST /issues", ui.ListIssues)
 	mux.HandleFunc("GET /issues/{key}", ui.IssueDetail)
@@ -202,15 +210,11 @@ func main() {
 	mux.HandleFunc("GET /runs/{id}/stdout", ui.RunStdout)
 	mux.HandleFunc("GET /search", ui.SearchIssuesAndAgents)
 	mux.HandleFunc("GET /events", sse.ServeHTTP)
-	staticSub, err := fs.Sub(staticFS, "static")
-	if err != nil {
-		log.WithError(err).Fatal("failed to create static sub-FS")
-	}
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(static.FS))))
 
 	// Favicon handlers for various browsers/clients
 	mux.HandleFunc("GET /favicon.svg", func(w http.ResponseWriter, r *http.Request) {
-		data, err := fs.ReadFile(staticSub, "favicon.svg")
+		data, err := fs.ReadFile(static.FS, "favicon.svg")
 		if err != nil {
 			http.NotFound(w, r)
 			return
@@ -247,9 +251,15 @@ func main() {
 	mux.HandleFunc("PATCH /api/v1/work-blocks/{id}", api.Auth(api.UpdateWorkBlock))
 	mux.HandleFunc("POST /api/v1/work-blocks/{id}/issues", api.Auth(api.AssignIssueToBlock))
 	mux.HandleFunc("DELETE /api/v1/work-blocks/{id}/issues/{key}", api.Auth(api.UnassignIssueFromBlock))
+
+	mux.HandleFunc("GET /api/v1/apex-blocks", api.Auth(api.ListApexBlocks))
+	mux.HandleFunc("GET /api/v1/apex-blocks/{id}", api.Auth(api.GetApexBlock))
+	mux.HandleFunc("POST /api/v1/apex-blocks", api.Auth(api.CreateApexBlock))
+	mux.HandleFunc("PATCH /api/v1/apex-blocks/{id}", api.Auth(api.UpdateApexBlock))
 	mux.HandleFunc("POST /api/v1/archetype-patches", api.Auth(api.CreateArchetypePatch))
 
 	// Apply org template on first run
+	templateName, defaultModel = promptFirstRun(database, templateName, defaultModel, templateProvided, modelProvided)
 	applyStartupTemplate(database, templateName, defaultModel)
 
 	// Recover stuck issues from previous run
@@ -306,6 +316,11 @@ func resolveRunner(model string) string {
 }
 
 func applyStartupTemplate(database *db.DB, templateName, defaultModel string) {
+	if templateName == "blank" {
+		log.Info("startup: blank template selected, skipping agent seeding")
+		return
+	}
+
 	agents, err := database.ListAgents()
 	if err != nil {
 		log.WithError(err).Error("failed to check agents table")
@@ -388,4 +403,105 @@ func parsePort(s string) (int, error) {
 		p = p*10 + int(c-'0')
 	}
 	return p, nil
+}
+
+func promptFirstRun(database *db.DB, templateName, defaultModel string, templateProvided, modelProvided bool) (string, string) {
+	agents, _ := database.ListAgents()
+	if len(agents) > 0 {
+		return templateName, defaultModel
+	}
+
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return templateName, defaultModel
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+
+	if !templateProvided {
+		fmt.Println("\nSelect a team template:")
+		fmt.Println("  1. startup     - Founding team: CEO, Engineer, Product, Designer, QA, DevOps")
+		fmt.Println("  2. dev-team    - Engineering-focused team")
+		fmt.Println("  3. saas        - SaaS product team")
+		fmt.Println("  4. agency      - Agency delivery team")
+		fmt.Println("  5. enterprise  - Larger org structure")
+		fmt.Println("  6. blank       - No agents, configure manually")
+
+		prompt := func() string {
+			fmt.Print("\nEnter choice [1]: ")
+			input, _ := reader.ReadString('\n')
+			input = strings.TrimSpace(input)
+			if input == "" {
+				return "startup"
+			}
+			switch input {
+			case "1", "startup":
+				return "startup"
+			case "2", "dev-team":
+				return "dev-team"
+			case "3", "saas":
+				return "saas"
+			case "4", "agency":
+				return "agency"
+			case "5", "enterprise":
+				return "enterprise"
+			case "6", "blank":
+				return "blank"
+			default:
+				return ""
+			}
+		}
+
+		templateName = prompt()
+		if templateName == "" {
+			fmt.Println("Invalid choice. Please try again.")
+			templateName = prompt()
+			if templateName == "" {
+				fmt.Println("Invalid choice. Using default: startup")
+				templateName = "startup"
+			}
+		}
+	}
+
+	if templateName == "blank" {
+		return "blank", ""
+	}
+
+	if !modelProvided {
+		fmt.Println("\nSelect default agent runner:")
+		fmt.Println("  1. claude  - Claude Code (default)")
+		fmt.Println("  2. gemini  - Google Gemini")
+		fmt.Println("  3. codex   - OpenAI Codex")
+
+		prompt := func() string {
+			fmt.Print("\nEnter choice [1]: ")
+			input, _ := reader.ReadString('\n')
+			input = strings.TrimSpace(input)
+			if input == "" {
+				return "claude"
+			}
+			switch input {
+			case "1", "claude":
+				return "claude"
+			case "2", "gemini":
+				return "gemini"
+			case "3", "codex":
+				return "codex"
+			default:
+				return ""
+			}
+		}
+
+		defaultModel = prompt()
+		if defaultModel == "" {
+			fmt.Println("Invalid choice. Please try again.")
+			defaultModel = prompt()
+			if defaultModel == "" {
+				fmt.Println("Invalid choice. Using default: claude")
+				defaultModel = "claude"
+			}
+		}
+	}
+
+	fmt.Printf("\nStarting with template=%s runner=%s\n\n", templateName, defaultModel)
+	return templateName, defaultModel
 }

@@ -860,6 +860,63 @@ func (d *DB) AddLabelToIssue(issueID, labelID string) error {
 	return err
 }
 
+// --- Apex Blocks ---
+
+func (d *DB) CreateApexBlock(ab *models.ApexBlock) error {
+	if ab.ID == "" {
+		ab.ID = uuid.NewString()
+	}
+	now := time.Now().UTC()
+	ab.CreatedAt = now
+	ab.UpdatedAt = now
+	if ab.Status == "" {
+		ab.Status = "active"
+	}
+	_, err := d.Exec(`INSERT INTO apex_blocks (id, title, goal, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		ab.ID, ab.Title, ab.Goal, ab.Status, ab.CreatedAt, ab.UpdatedAt)
+	return err
+}
+
+func (d *DB) GetApexBlock(id string) (*models.ApexBlock, error) {
+	ab := &models.ApexBlock{}
+	err := d.QueryRow(`SELECT id, title, goal, status, created_at, updated_at FROM apex_blocks WHERE id=?`, id).Scan(
+		&ab.ID, &ab.Title, &ab.Goal, &ab.Status, &ab.CreatedAt, &ab.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return ab, nil
+}
+
+func (d *DB) ListApexBlocks() ([]models.ApexBlock, error) {
+	rows, err := d.Query(`SELECT id, title, goal, status, created_at, updated_at FROM apex_blocks ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var blocks []models.ApexBlock
+	for rows.Next() {
+		var ab models.ApexBlock
+		if err := rows.Scan(&ab.ID, &ab.Title, &ab.Goal, &ab.Status, &ab.CreatedAt, &ab.UpdatedAt); err != nil {
+			return nil, err
+		}
+		blocks = append(blocks, ab)
+	}
+	return blocks, rows.Err()
+}
+
+func (d *DB) UpdateApexBlock(ab *models.ApexBlock) error {
+	ab.UpdatedAt = time.Now().UTC()
+	_, err := d.Exec(`UPDATE apex_blocks SET title=?, goal=?, status=?, updated_at=? WHERE id=?`,
+		ab.Title, ab.Goal, ab.Status, ab.UpdatedAt, ab.ID)
+	return err
+}
+
+func (d *DB) DeleteApexBlock(id string) error {
+	_, err := d.Exec(`DELETE FROM apex_blocks WHERE id=?`, id)
+	return err
+}
+
 // --- Work Blocks ---
 
 func (d *DB) CreateWorkBlock(wb *models.WorkBlock) error {
@@ -881,15 +938,15 @@ func (d *DB) CreateWorkBlock(wb *models.WorkBlock) error {
 	if wb.Status == "" {
 		wb.Status = models.WBStatusProposed
 	}
-	_, err := d.Exec(`INSERT INTO work_blocks (id, title, goal, acceptance_criteria, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		wb.ID, wb.Title, wb.Goal, wb.AcceptanceCriteria, wb.Status, wb.CreatedAt, wb.UpdatedAt)
+	_, err := d.Exec(`INSERT INTO work_blocks (id, title, goal, acceptance_criteria, status, created_at, updated_at, north_star_metric, north_star_target, apex_block_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		wb.ID, wb.Title, wb.Goal, wb.AcceptanceCriteria, wb.Status, wb.CreatedAt, wb.UpdatedAt, wb.NorthStarMetric, wb.NorthStarTarget, wb.ApexBlockID)
 	return err
 }
 
 func (d *DB) GetWorkBlock(id string) (*models.WorkBlock, error) {
 	wb := &models.WorkBlock{}
-	err := d.QueryRow(`SELECT id, title, goal, acceptance_criteria, status, created_at, updated_at, activated_at, completed_at FROM work_blocks WHERE id=?`, id).Scan(
-		&wb.ID, &wb.Title, &wb.Goal, &wb.AcceptanceCriteria, &wb.Status, &wb.CreatedAt, &wb.UpdatedAt, &wb.ActivatedAt, &wb.CompletedAt)
+	err := d.QueryRow(`SELECT id, title, goal, acceptance_criteria, status, created_at, updated_at, activated_at, completed_at, north_star_metric, north_star_target, apex_block_id FROM work_blocks WHERE id=?`, id).Scan(
+		&wb.ID, &wb.Title, &wb.Goal, &wb.AcceptanceCriteria, &wb.Status, &wb.CreatedAt, &wb.UpdatedAt, &wb.ActivatedAt, &wb.CompletedAt, &wb.NorthStarMetric, &wb.NorthStarTarget, &wb.ApexBlockID)
 	if err != nil {
 		return nil, err
 	}
@@ -898,8 +955,8 @@ func (d *DB) GetWorkBlock(id string) (*models.WorkBlock, error) {
 
 func (d *DB) GetActiveWorkBlock() (*models.WorkBlock, error) {
 	wb := &models.WorkBlock{}
-	err := d.QueryRow(`SELECT id, title, goal, acceptance_criteria, status, created_at, updated_at, activated_at, completed_at FROM work_blocks WHERE status='active' LIMIT 1`).Scan(
-		&wb.ID, &wb.Title, &wb.Goal, &wb.AcceptanceCriteria, &wb.Status, &wb.CreatedAt, &wb.UpdatedAt, &wb.ActivatedAt, &wb.CompletedAt)
+	err := d.QueryRow(`SELECT id, title, goal, acceptance_criteria, status, created_at, updated_at, activated_at, completed_at, north_star_metric, north_star_target, apex_block_id FROM work_blocks WHERE status='active' LIMIT 1`).Scan(
+		&wb.ID, &wb.Title, &wb.Goal, &wb.AcceptanceCriteria, &wb.Status, &wb.CreatedAt, &wb.UpdatedAt, &wb.ActivatedAt, &wb.CompletedAt, &wb.NorthStarMetric, &wb.NorthStarTarget, &wb.ApexBlockID)
 	if err != nil {
 		return nil, err
 	}
@@ -907,7 +964,7 @@ func (d *DB) GetActiveWorkBlock() (*models.WorkBlock, error) {
 }
 
 func (d *DB) ListWorkBlocks() ([]models.WorkBlock, error) {
-	rows, err := d.Query(`SELECT id, title, goal, acceptance_criteria, status, created_at, updated_at, activated_at, completed_at FROM work_blocks ORDER BY created_at DESC`)
+	rows, err := d.Query(`SELECT id, title, goal, acceptance_criteria, status, created_at, updated_at, activated_at, completed_at, north_star_metric, north_star_target, apex_block_id FROM work_blocks ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -916,12 +973,19 @@ func (d *DB) ListWorkBlocks() ([]models.WorkBlock, error) {
 	var blocks []models.WorkBlock
 	for rows.Next() {
 		var wb models.WorkBlock
-		if err := rows.Scan(&wb.ID, &wb.Title, &wb.Goal, &wb.AcceptanceCriteria, &wb.Status, &wb.CreatedAt, &wb.UpdatedAt, &wb.ActivatedAt, &wb.CompletedAt); err != nil {
+		if err := rows.Scan(&wb.ID, &wb.Title, &wb.Goal, &wb.AcceptanceCriteria, &wb.Status, &wb.CreatedAt, &wb.UpdatedAt, &wb.ActivatedAt, &wb.CompletedAt, &wb.NorthStarMetric, &wb.NorthStarTarget, &wb.ApexBlockID); err != nil {
 			return nil, err
 		}
 		blocks = append(blocks, wb)
 	}
 	return blocks, rows.Err()
+}
+
+func (d *DB) UpdateWorkBlock(wb *models.WorkBlock) error {
+	wb.UpdatedAt = time.Now().UTC()
+	_, err := d.Exec(`UPDATE work_blocks SET title=?, goal=?, acceptance_criteria=?, status=?, updated_at=?, activated_at=?, completed_at=?, north_star_metric=?, north_star_target=?, apex_block_id=? WHERE id=?`,
+		wb.Title, wb.Goal, wb.AcceptanceCriteria, wb.Status, wb.UpdatedAt, wb.ActivatedAt, wb.CompletedAt, wb.NorthStarMetric, wb.NorthStarTarget, wb.ApexBlockID, wb.ID)
+	return err
 }
 
 func (d *DB) UpdateWorkBlockStatus(id, newStatus string) error {

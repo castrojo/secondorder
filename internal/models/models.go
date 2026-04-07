@@ -265,6 +265,19 @@ type WorkBlock struct {
 	CompletedAt        *time.Time `json:"completed_at"`
 	Issues             []Issue         `json:"issues,omitempty"`
 	Stats              *WorkBlockStats `json:"stats,omitempty"`
+
+	NorthStarMetric    string     `json:"north_star_metric"`
+	NorthStarTarget    string     `json:"north_star_target"`
+	ApexBlockID        *string    `json:"apex_block_id"`
+}
+
+type ApexBlock struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Goal      string    `json:"goal"`
+	Status    string    `json:"status"` // "active", "archived"
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type WorkBlockStats struct {

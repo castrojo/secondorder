@@ -26,6 +26,7 @@ func Parse() (*template.Template, error) {
 		"run_detail.html",
 		"work_blocks.html",
 		"work_block_detail.html",
+		"strategy.html",
 		"policies.html",
 		"activity.html",
 		"crons.html",

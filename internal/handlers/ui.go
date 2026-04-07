@@ -45,11 +45,26 @@ func (u *UI) Dashboard(w http.ResponseWriter, r *http.Request) {
 	agents, _ := u.db.ListAgents()
 	runningAgents, _ := u.db.GetRunningAgentIDs()
 
+	// Calculate alignment score
+	workBlocks, _ := u.db.ListWorkBlocks()
+	totalWorkBlocks := len(workBlocks)
+	alignedWorkBlocks := 0
+	for _, wb := range workBlocks {
+		if wb.ApexBlockID != nil && *wb.ApexBlockID != "" {
+			alignedWorkBlocks++
+		}
+	}
+	alignmentScore := 0
+	if totalWorkBlocks > 0 {
+		alignmentScore = (alignedWorkBlocks * 100) / totalWorkBlocks
+	}
+
 	data := map[string]any{
-		"Stats":         stats,
-		"Issues":        issues,
-		"Agents":        agents,
-		"RunningAgents": runningAgents,
+		"Stats":          stats,
+		"Issues":         issues,
+		"Agents":         agents,
+		"RunningAgents":  runningAgents,
+		"AlignmentScore": alignmentScore,
 	}
 
 	if activeBlock, err := u.db.GetActiveWorkBlock(); err == nil {
@@ -683,7 +698,11 @@ func (u *UI) ListWorkBlocks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	blocks, _ := u.db.ListWorkBlocks()
-	u.render(w, "work_blocks", map[string]any{"Blocks": blocks})
+	apexBlocks, _ := u.db.ListApexBlocks()
+	u.render(w, "work_blocks", map[string]any{
+		"Blocks":     blocks,
+		"ApexBlocks": apexBlocks,
+	})
 }
 
 func (u *UI) createWorkBlockUI(w http.ResponseWriter, r *http.Request) {
@@ -698,6 +717,7 @@ func (u *UI) createWorkBlockUI(w http.ResponseWriter, r *http.Request) {
 		Goal:               r.FormValue("goal"),
 		AcceptanceCriteria: r.FormValue("acceptance_criteria"),
 		Status:             models.WBStatusProposed,
+		ApexBlockID:        ptrStrOrNil(r.FormValue("apex_block_id")),
 	}
 	u.db.CreateWorkBlock(wb)
 	http.Redirect(w, r, "/work-blocks/"+wb.ID, http.StatusSeeOther)
@@ -718,17 +738,21 @@ func (u *UI) WorkBlockDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	issues, _ := u.db.ListWorkBlockIssues(id)
 	stats, _ := u.db.GetWorkBlockStats(id)
+	apexBlocks, _ := u.db.ListApexBlocks()
 
 	u.render(w, "work_block_detail", map[string]any{
-		"Block":  wb,
-		"Issues": issues,
-		"Stats":  stats,
+		"Block":      wb,
+		"Issues":     issues,
+		"Stats":      stats,
+		"ApexBlocks": apexBlocks,
 	})
 }
 
 func (u *UI) updateWorkBlockUI(w http.ResponseWriter, r *http.Request, id string) {
 	r.ParseForm()
 	action := r.FormValue("action")
+
+	wb, _ := u.db.GetWorkBlock(id)
 
 	switch action {
 	case "activate":
@@ -741,6 +765,18 @@ func (u *UI) updateWorkBlockUI(w http.ResponseWriter, r *http.Request, id string
 		u.db.UpdateWorkBlockStatus(id, models.WBStatusActive)
 	case "cancel":
 		u.db.UpdateWorkBlockStatus(id, models.WBStatusCancelled)
+	case "update":
+		if t := r.FormValue("title"); t != "" {
+			wb.Title = t
+		}
+		if g := r.FormValue("goal"); g != "" {
+			wb.Goal = g
+		}
+		if ac := r.FormValue("acceptance_criteria"); ac != "" {
+			wb.AcceptanceCriteria = ac
+		}
+		wb.ApexBlockID = ptrStrOrNil(r.FormValue("apex_block_id"))
+		u.db.UpdateWorkBlock(wb)
 	case "assign_issue":
 		issueKey := r.FormValue("issue_key")
 		if issueKey != "" {
@@ -1123,6 +1159,98 @@ func (u *UI) CronAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/crons", http.StatusSeeOther)
+}
+
+func (u *UI) StrategyPage(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		u.createApexBlockUI(w, r)
+		return
+	}
+
+	blocks, _ := u.db.ListApexBlocks()
+	workBlocks, _ := u.db.ListWorkBlocks()
+
+	// Calculate alignment score
+	totalWorkBlocks := len(workBlocks)
+	alignedWorkBlocks := 0
+	apexWorkBlocks := make(map[string][]models.WorkBlock)
+
+	for _, wb := range workBlocks {
+		if wb.ApexBlockID != nil && *wb.ApexBlockID != "" {
+			alignedWorkBlocks++
+			apexWorkBlocks[*wb.ApexBlockID] = append(apexWorkBlocks[*wb.ApexBlockID], wb)
+		}
+	}
+
+	alignmentScore := 0
+	if totalWorkBlocks > 0 {
+		alignmentScore = (alignedWorkBlocks * 100) / totalWorkBlocks
+	}
+
+	u.render(w, "strategy", map[string]any{
+		"ApexBlocks":     blocks,
+		"WorkBlocks":     workBlocks,
+		"ApexWorkBlocks": apexWorkBlocks,
+		"AlignmentScore": alignmentScore,
+	})
+}
+
+func (u *UI) createApexBlockUI(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	title := r.FormValue("title")
+	goal := r.FormValue("goal")
+	if title == "" || goal == "" {
+		http.Redirect(w, r, "/strategy?error=Title+and+Goal+are+required", http.StatusSeeOther)
+		return
+	}
+
+	ab := &models.ApexBlock{
+		ID:     uuid.New().String(),
+		Title:  title,
+		Goal:   goal,
+		Status: "active",
+	}
+
+	if err := u.db.CreateApexBlock(ab); err != nil {
+		http.Redirect(w, r, "/strategy?error=Failed+to+create+apex+block", http.StatusSeeOther)
+		return
+	}
+
+	LogActivityAndBroadcast(u.db, u.sse, u.tmpl, "create", "apex_block", ab.ID, nil, title)
+
+	http.Redirect(w, r, "/strategy", http.StatusSeeOther)
+}
+
+func (u *UI) UpdateApexBlockUI(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	r.ParseForm()
+	action := r.FormValue("action")
+
+	ab, err := u.db.GetApexBlock(id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	switch action {
+	case "toggle_status":
+		if ab.Status == "active" {
+			ab.Status = "archived"
+		} else {
+			ab.Status = "active"
+		}
+		u.db.UpdateApexBlock(ab)
+	case "update":
+		if t := r.FormValue("title"); t != "" {
+			ab.Title = t
+		}
+		if g := r.FormValue("goal"); g != "" {
+			ab.Goal = g
+		}
+		u.db.UpdateApexBlock(ab)
+	}
+
+	http.Redirect(w, r, "/strategy", http.StatusSeeOther)
 }
 
 func (u *UI) NotFound(w http.ResponseWriter, r *http.Request) {

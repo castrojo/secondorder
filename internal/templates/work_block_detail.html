@@ -15,18 +15,79 @@
 
         <!-- Header -->
         <div class="bg-card border border-bd rounded-lg p-5">
-          <div class="flex items-center gap-3 mb-2">
-            <span class="{{wbStatusColor .Block.Status}} inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium">{{upper .Block.Status}}</span>
-            <h1 class="text-lg font-semibold text-ink">{{.Block.Title}}</h1>
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+              <span class="{{wbStatusColor .Block.Status}} inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium">{{upper .Block.Status}}</span>
+              <h1 class="text-lg font-semibold text-ink">{{.Block.Title}}</h1>
+            </div>
+            <button onclick="document.getElementById('edit-wb-modal').classList.remove('hidden')" class="p-1.5 text-ink3/50 hover:text-ink hover:bg-sf rounded-md transition-all">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+            </button>
           </div>
-          {{if .Block.Goal}}<p class="text-[13px] text-ink3 mt-2">{{.Block.Goal}}</p>{{end}}
+          
+          {{if .Block.ApexBlockID}}
+          <div class="mb-4 flex items-center gap-2">
+            <span class="text-[11px] font-bold text-ink3/50 uppercase tracking-wider">Strategic Goal:</span>
+            {{range .ApexBlocks}}
+              {{if eq .ID (deref $.Block.ApexBlockID)}}
+              <a href="/strategy" class="text-[11px] font-medium text-ac-t hover:underline">{{.Title}}</a>
+              {{end}}
+            {{end}}
+          </div>
+          {{end}}
+
+          {{if .Block.Goal}}<p class="text-[13px] text-ink3 mt-2 leading-relaxed">{{.Block.Goal}}</p>{{end}}
           {{if .Block.AcceptanceCriteria}}
-          <div class="mt-3 pt-3 border-t border-bd">
-            <p class="text-[11px] text-ink3/50 uppercase tracking-wider mb-1.5">Acceptance Criteria</p>
-            <p class="text-[13px] text-ink3 whitespace-pre-wrap">{{.Block.AcceptanceCriteria}}</p>
+          <div class="mt-4 pt-4 border-t border-bd">
+            <p class="text-[11px] text-ink3/50 uppercase tracking-wider mb-2">Acceptance Criteria</p>
+            <p class="text-[13px] text-ink2 whitespace-pre-wrap leading-relaxed">{{.Block.AcceptanceCriteria}}</p>
           </div>
           {{end}}
         </div>
+
+<!-- Edit Modal -->
+<div id="edit-wb-modal" class="fixed inset-0 z-50 hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="absolute inset-0 bg-code/40 backdrop-blur-sm"></div>
+  <div class="relative mx-auto mt-24 w-full max-w-lg bg-card rounded-xl border border-bd shadow-2xl p-6 fade-in">
+    <div class="flex items-center justify-between mb-6">
+      <h3 class="text-lg font-bold text-ink">Edit Work Block</h3>
+      <button onclick="document.getElementById('edit-wb-modal').classList.add('hidden')" class="text-ink3 hover:text-ink transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form method="POST" action="/work-blocks/{{.Block.ID}}" class="space-y-4">
+      <input type="hidden" name="action" value="update">
+      <div>
+        <label class="block text-xs font-bold text-ink3/50 uppercase tracking-wider mb-1.5">Title</label>
+        <input type="text" name="title" value="{{.Block.Title}}" required
+          class="w-full bg-sf border border-bd rounded-lg px-3 py-2 text-sm text-ink outline-none focus:border-ac transition-colors">
+      </div>
+      <div>
+        <label class="block text-xs font-bold text-ink3/50 uppercase tracking-wider mb-1.5">Parent Apex Block</label>
+        <select name="apex_block_id" class="w-full bg-sf border border-bd rounded-lg px-3 py-2 text-sm text-ink outline-none focus:border-ac transition-colors">
+          <option value="">None / Maintenance / Overhead</option>
+          {{range .ApexBlocks}}
+          <option value="{{.ID}}" {{if $.Block.ApexBlockID}}{{if eq .ID (deref $.Block.ApexBlockID)}}selected{{end}}{{end}}>{{.Title}}</option>
+          {{end}}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-bold text-ink3/50 uppercase tracking-wider mb-1.5">Goal</label>
+        <textarea name="goal" rows="3" class="w-full bg-sf border border-bd rounded-lg px-3 py-2 text-sm text-ink outline-none focus:border-ac transition-colors resize-none">{{.Block.Goal}}</textarea>
+      </div>
+      <div>
+        <label class="block text-xs font-bold text-ink3/50 uppercase tracking-wider mb-1.5">Acceptance Criteria</label>
+        <textarea name="acceptance_criteria" rows="4" class="w-full bg-sf border border-bd rounded-lg px-3 py-2 text-sm text-ink outline-none focus:border-ac transition-colors resize-none">{{.Block.AcceptanceCriteria}}</textarea>
+      </div>
+      <div class="pt-2 flex justify-end gap-3">
+        <button type="button" onclick="document.getElementById('edit-wb-modal').classList.add('hidden')"
+          class="px-4 py-2 text-sm font-medium rounded-md bg-sf border border-bd text-ink3 hover:text-ink hover:bg-pg transition-colors">Cancel</button>
+        <button type="submit"
+          class="px-4 py-2 text-sm font-medium rounded-md bg-ac hover:bg-ac-h text-white shadow-sm active:scale-[0.98] transition-all">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
 
         <!-- Issues -->
         <div>

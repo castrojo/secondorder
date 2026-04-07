@@ -669,6 +669,93 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
+// --- Apex Blocks API ---
+
+func (a *API) ListApexBlocks(w http.ResponseWriter, r *http.Request) {
+	blocks, err := a.db.ListApexBlocks()
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, blocks)
+}
+
+func (a *API) GetApexBlock(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	ab, err := a.db.GetApexBlock(id)
+	if err != nil {
+		jsonError(w, "apex block not found", http.StatusNotFound)
+		return
+	}
+	jsonOK(w, ab)
+}
+
+func (a *API) CreateApexBlock(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Title string `json:"title"`
+		Goal  string `json:"goal"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Title == "" {
+		jsonError(w, "title required", http.StatusBadRequest)
+		return
+	}
+
+	ab := &models.ApexBlock{
+		ID:    uuid.New().String(),
+		Title: body.Title,
+		Goal:  body.Goal,
+	}
+	if err := a.db.CreateApexBlock(ab); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	agent := agentFromContext(r.Context())
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, "create", "apex_block", ab.ID, ptrStr(agent), body.Title)
+
+	w.WriteHeader(http.StatusCreated)
+	jsonOK(w, ab)
+}
+
+func (a *API) UpdateApexBlock(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	ab, err := a.db.GetApexBlock(id)
+	if err != nil {
+		jsonError(w, "apex block not found", http.StatusNotFound)
+		return
+	}
+
+	var body struct {
+		Title  string `json:"title"`
+		Goal   string `json:"goal"`
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	if body.Title != "" {
+		ab.Title = body.Title
+	}
+	if body.Goal != "" {
+		ab.Goal = body.Goal
+	}
+	if body.Status != "" {
+		ab.Status = body.Status
+	}
+
+	if err := a.db.UpdateApexBlock(ab); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	agent := agentFromContext(r.Context())
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, "update", "apex_block", id, ptrStr(agent), ab.Title)
+
+	jsonOK(w, ab)
+}
+
 // --- Work Blocks API ---
 
 func (a *API) ListWorkBlocks(w http.ResponseWriter, r *http.Request) {
@@ -694,9 +781,12 @@ func (a *API) GetWorkBlock(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) CreateWorkBlock(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Title              string `json:"title"`
-		Goal               string `json:"goal"`
-		AcceptanceCriteria string `json:"acceptance_criteria"`
+		Title              string  `json:"title"`
+		Goal               string  `json:"goal"`
+		AcceptanceCriteria string  `json:"acceptance_criteria"`
+		NorthStarMetric    string  `json:"north_star_metric"`
+		NorthStarTarget    string  `json:"north_star_target"`
+		ApexBlockID        *string `json:"apex_block_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Title == "" {
 		jsonError(w, "title required", http.StatusBadRequest)
@@ -708,6 +798,9 @@ func (a *API) CreateWorkBlock(w http.ResponseWriter, r *http.Request) {
 		Goal:               body.Goal,
 		AcceptanceCriteria: body.AcceptanceCriteria,
 		Status:             models.WBStatusProposed,
+		NorthStarMetric:    body.NorthStarMetric,
+		NorthStarTarget:    body.NorthStarTarget,
+		ApexBlockID:        body.ApexBlockID,
 	}
 	if err := a.db.CreateWorkBlock(wb); err != nil {
 		jsonError(w, err.Error(), http.StatusConflict)
@@ -728,24 +821,63 @@ func (a *API) CreateWorkBlock(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) UpdateWorkBlock(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	var body struct {
-		Status string `json:"status"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Status == "" {
-		jsonError(w, "status required", http.StatusBadRequest)
+	wb, err := a.db.GetWorkBlock(id)
+	if err != nil {
+		jsonError(w, "work block not found", http.StatusNotFound)
 		return
 	}
 
-	if err := a.db.UpdateWorkBlockStatus(id, body.Status); err != nil {
-		jsonError(w, err.Error(), http.StatusBadRequest)
+	var body struct {
+		Title              string  `json:"title"`
+		Goal               string  `json:"goal"`
+		AcceptanceCriteria string  `json:"acceptance_criteria"`
+		Status             string  `json:"status"`
+		NorthStarMetric    string  `json:"north_star_metric"`
+		NorthStarTarget    string  `json:"north_star_target"`
+		ApexBlockID        *string `json:"apex_block_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	if body.Status != "" && body.Status != wb.Status {
+		if err := a.db.UpdateWorkBlockStatus(id, body.Status); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		wb.Status = body.Status
+	}
+
+	if body.Title != "" {
+		wb.Title = body.Title
+	}
+	if body.Goal != "" {
+		wb.Goal = body.Goal
+	}
+	if body.AcceptanceCriteria != "" {
+		wb.AcceptanceCriteria = body.AcceptanceCriteria
+	}
+	if body.NorthStarMetric != "" {
+		wb.NorthStarMetric = body.NorthStarMetric
+	}
+	if body.NorthStarTarget != "" {
+		wb.NorthStarTarget = body.NorthStarTarget
+	}
+	if body.ApexBlockID != nil {
+		wb.ApexBlockID = body.ApexBlockID
+	}
+
+	if err := a.db.UpdateWorkBlock(wb); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	agent := agentFromContext(r.Context())
 	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
-"update", "work_block", id, ptrStr(agent), body.Status)
+"update", "work_block", id, ptrStr(agent), wb.Status)
 
-	jsonOK(w, map[string]string{"status": body.Status})
+	jsonOK(w, wb)
 }
 
 func (a *API) AssignIssueToBlock(w http.ResponseWriter, r *http.Request) {

@@ -3,11 +3,13 @@ package main
 import (
 	"io/fs"
 	"testing"
+
+	"github.com/msoedov/secondorder/static"
 )
 
 func TestStaticFS(t *testing.T) {
 	// Check if static directory is embedded
-	entries, err := fs.ReadDir(staticFS, "static")
+	entries, err := fs.ReadDir(static.FS, ".")
 	if err != nil {
 		t.Fatalf("failed to read static directory from embed.FS: %v", err)
 	}
