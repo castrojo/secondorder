@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -42,6 +43,90 @@ func TestRunMigrationsIdempotent(t *testing.T) {
 	// Running migrations again should be a no-op
 	if err := d.RunMigrations(); err != nil {
 		t.Fatalf("second migration run: %v", err)
+	}
+}
+
+func TestOpenSetsAgentTimeoutDefault(t *testing.T) {
+	d := testDB(t)
+
+	rows, err := d.Query(`PRAGMA table_info(agents)`)
+	if err != nil {
+		t.Fatalf("pragma table_info: %v", err)
+	}
+	defer rows.Close()
+
+	found := false
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			typ        string
+			notNull    int
+			defaultVal sql.NullString
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultVal, &pk); err != nil {
+			t.Fatalf("scan pragma: %v", err)
+		}
+		if name == "timeout_sec" {
+			found = true
+			got, err := strconv.Atoi(defaultVal.String)
+			if err != nil {
+				t.Fatalf("parse timeout default %q: %v", defaultVal.String, err)
+			}
+			if got != models.DefaultAgentTimeoutSec {
+				t.Fatalf("timeout_sec default = %d, want %d", got, models.DefaultAgentTimeoutSec)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("pragma rows: %v", err)
+	}
+	if !found {
+		t.Fatal("timeout_sec column not found")
+	}
+}
+
+func TestRunMigrationsUpdatesLegacyDefaultTimeoutAgents(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	sqlDB, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer sqlDB.Close()
+
+	stmts := []string{
+		`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+		`CREATE TABLE agents (id TEXT PRIMARY KEY, timeout_sec INTEGER NOT NULL DEFAULT 600)`,
+		`INSERT INTO agents (id, timeout_sec) VALUES ('legacy-default', 600), ('custom-timeout', 900)`,
+	}
+	for i := 1; i <= 15; i++ {
+		stmts = append(stmts, `INSERT INTO schema_migrations (version) VALUES (`+strconv.Itoa(i)+`)`)
+	}
+	for _, stmt := range stmts {
+		if _, err := sqlDB.Exec(stmt); err != nil {
+			t.Fatalf("exec %q: %v", stmt, err)
+		}
+	}
+
+	d := &DB{DB: sqlDB}
+	if err := d.RunMigrations(); err != nil {
+		t.Fatalf("run migrations: %v", err)
+	}
+
+	var got int
+	if err := d.QueryRow(`SELECT timeout_sec FROM agents WHERE id = 'legacy-default'`).Scan(&got); err != nil {
+		t.Fatalf("query legacy-default: %v", err)
+	}
+	if got != models.DefaultAgentTimeoutSec {
+		t.Fatalf("legacy default timeout = %d, want %d", got, models.DefaultAgentTimeoutSec)
+	}
+
+	if err := d.QueryRow(`SELECT timeout_sec FROM agents WHERE id = 'custom-timeout'`).Scan(&got); err != nil {
+		t.Fatalf("query custom-timeout: %v", err)
+	}
+	if got != 900 {
+		t.Fatalf("custom timeout = %d, want 900", got)
 	}
 }
 
@@ -1362,7 +1447,7 @@ func TestGetDailyActivityStats(t *testing.T) {
 	d.LogActivity("delete", "issue", "SO-DELETED", nil, "")
 	d.LogActivity("backlog", "issue", "SO-BACKLOG", nil, "")
 	d.LogActivity("recovery", "system", "startup", nil, "")
-	
+
 	// Yesterday
 	yesterday := time.Now().Add(-24 * time.Hour).UTC().Format("2006-01-02 15:04:05")
 	d.Exec(`INSERT INTO activity_log (id, action, entity_type, entity_id, agent_id, details, created_at)
@@ -1395,7 +1480,7 @@ func TestGetDailyActivityStats(t *testing.T) {
 
 	// Today at index 6
 	if stats[6].Creations != 1 || stats[6].Updates != 2 || stats[6].Checkouts != 1 ||
-	   stats[6].AssignToBlock != 1 || stats[6].Deletions != 1 || stats[6].Backlog != 1 || stats[6].Recovery != 1 || stats[6].Completed != 1 {
+		stats[6].AssignToBlock != 1 || stats[6].Deletions != 1 || stats[6].Backlog != 1 || stats[6].Recovery != 1 || stats[6].Completed != 1 {
 		t.Errorf("expected today stats to be C:1, U:2, CK:1, A:1, D:1, B:1, R:1, COMP:1, got C:%d, U:%d, CK:%d, A:%d, D:%d, B:%d, R:%d, COMP:%d",
 			stats[6].Creations, stats[6].Updates, stats[6].Checkouts, stats[6].AssignToBlock, stats[6].Deletions, stats[6].Backlog, stats[6].Recovery, stats[6].Completed)
 	}
@@ -1407,6 +1492,40 @@ func TestGetDailyActivityStats(t *testing.T) {
 	// 2 days ago at index 4
 	if stats[4].Checkouts != 1 || stats[4].Deletions != 1 {
 		t.Errorf("expected 1 checkout and 1 deletion 2 days ago, got CK:%d, D:%d", stats[4].Checkouts, stats[4].Deletions)
+	}
+}
+
+func TestGetDailyActivityStats_LegacyTimestampFormat(t *testing.T) {
+	d := testDB(t)
+
+	today := time.Now().UTC().Format("2006-01-02")
+	legacyTimestamp := today + " 10:15:30.123456 +0000 UTC"
+
+	if _, err := d.Exec(`INSERT INTO activity_log (id, action, entity_type, entity_id, agent_id, details, created_at)
+		VALUES (?, 'create', 'issue', 'SO-LEGACY', NULL, 'legacy create', ?)`, uuid.NewString(), legacyTimestamp); err != nil {
+		t.Fatalf("insert legacy create: %v", err)
+	}
+	if _, err := d.Exec(`INSERT INTO activity_log (id, action, entity_type, entity_id, agent_id, details, created_at)
+		VALUES (?, 'update', 'issue', 'SO-LEGACY', NULL, 'completed', ?)`, uuid.NewString(), legacyTimestamp); err != nil {
+		t.Fatalf("insert legacy completed: %v", err)
+	}
+
+	stats, err := d.GetDailyActivityStats(1)
+	if err != nil {
+		t.Fatalf("failed to get stats: %v", err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 day of stats, got %d", len(stats))
+	}
+
+	if stats[0].Creations != 1 {
+		t.Errorf("expected legacy creation to be counted, got %d", stats[0].Creations)
+	}
+	if stats[0].Updates != 1 {
+		t.Errorf("expected legacy update to be counted, got %d", stats[0].Updates)
+	}
+	if stats[0].Completed != 1 {
+		t.Errorf("expected legacy completed update to be counted, got %d", stats[0].Completed)
 	}
 }
 

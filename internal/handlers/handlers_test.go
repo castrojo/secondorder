@@ -348,7 +348,7 @@ func TestCreateIssueDuplicateDetection(t *testing.T) {
 type stubSched struct{}
 
 func (s *stubSched) WakeAgentHeartbeat(*models.Agent) {}
-func (s *stubSched) CancelAudit(string) error { return nil }
+func (s *stubSched) CancelAudit(string) error         { return nil }
 func (s *stubSched) RunAudit(int, int, string, string, string) (string, error) {
 	return "", nil
 }
@@ -485,6 +485,80 @@ func TestCreateSubIssueUI_Success(t *testing.T) {
 	}
 }
 
+func TestBuildActivityOverview(t *testing.T) {
+	stats := []models.DailyStat{
+		{Label: "Apr 5", Creations: 2, Updates: 1, Completed: 1},
+		{Label: "Apr 6"},
+		{Label: "Apr 7", Checkouts: 3},
+		{Label: "Apr 8", Updates: 2, Backlog: 1},
+	}
+
+	overview := buildActivityOverview(stats)
+
+	if overview.WindowDays != 4 {
+		t.Fatalf("window days = %d, want 4", overview.WindowDays)
+	}
+	if overview.ActiveDays != 3 {
+		t.Errorf("active days = %d, want 3", overview.ActiveDays)
+	}
+	if overview.CurrentStreak != 2 {
+		t.Errorf("current streak = %d, want 2", overview.CurrentStreak)
+	}
+	if overview.LongestStreak != 2 {
+		t.Errorf("longest streak = %d, want 2", overview.LongestStreak)
+	}
+	if overview.TotalActions != 10 {
+		t.Errorf("total actions = %d, want 10", overview.TotalActions)
+	}
+	if overview.Completed != 1 {
+		t.Errorf("completed = %d, want 1", overview.Completed)
+	}
+	if overview.BusiestDayCount != 4 || overview.BusiestDayLabel != "Apr 5" {
+		t.Errorf("busiest day = %d/%q, want 4/Apr 5", overview.BusiestDayCount, overview.BusiestDayLabel)
+	}
+	if overview.AvgPerDay != 2.5 {
+		t.Errorf("avg per day = %.1f, want 2.5", overview.AvgPerDay)
+	}
+}
+
+func TestActivityPage_RendersOverviewStats(t *testing.T) {
+	d := testDB(t)
+	ui := testUI(t, d)
+
+	if err := d.LogActivity("create", "issue", "SO-1", nil, "created"); err != nil {
+		t.Fatalf("log create: %v", err)
+	}
+	if err := d.LogActivity("update", "issue", "SO-1", nil, "done"); err != nil {
+		t.Fatalf("log update: %v", err)
+	}
+	if err := d.LogActivity("checkout", "issue", "SO-1", nil, ""); err != nil {
+		t.Fatalf("log checkout: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/activity", nil)
+	w := httptest.NewRecorder()
+
+	ui.ActivityPage(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	body := w.Body.String()
+	for _, want := range []string{
+		"Task cadence",
+		"Current streak",
+		"Average load",
+		"Busiest day",
+		"Tasks completed",
+		"Activity totals",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("response missing %q", want)
+		}
+	}
+}
+
 func TestIssueDetail_EmptySections(t *testing.T) {
 	d := testDB(t)
 	ui := testUI(t, d)
@@ -507,7 +581,7 @@ func TestIssueDetail_EmptySections(t *testing.T) {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
 	body := w.Body.String()
-	
+
 	// Verify "Sub-issues" section is NOT present (hidden when empty)
 	if strings.Contains(body, "Sub-issues") {
 		t.Error("body contains 'Sub-issues' header but it should be hidden")
@@ -758,10 +832,10 @@ func TestNotFound(t *testing.T) {
 	ui := testUI(t, d)
 
 	tests := []struct {
-		name       string
-		accept     string
-		wantCode   int
-		wantHTML   bool
+		name     string
+		accept   string
+		wantCode int
+		wantHTML bool
 	}{
 		{"html request", "text/html", 404, true},
 		{"json request", "application/json", 404, false},
@@ -932,6 +1006,9 @@ func TestAgentUI_CreateAndUpdate(t *testing.T) {
 	}
 	if agent.ApiKeyEnv != "MY_KEY" {
 		t.Errorf("api_key_env = %q, want MY_KEY", agent.ApiKeyEnv)
+	}
+	if agent.TimeoutSec != models.DefaultAgentTimeoutSec {
+		t.Errorf("timeout_sec = %d, want %d", agent.TimeoutSec, models.DefaultAgentTimeoutSec)
 	}
 
 	// 2. Update agent (change runner and clear api_key_env)
@@ -1139,7 +1216,7 @@ func TestUpdateIssue_Reassign(t *testing.T) {
 		t.Errorf("expected nil assignee, got %v", *updatedIssue.AssigneeAgentID)
 	}
 
-    // Test reassignment to non-existent agent
+	// Test reassignment to non-existent agent
 	req = httptest.NewRequest("PATCH", "/api/v1/issues/SO-55", strings.NewReader(`{"assignee_slug":"non-existent"}`))
 	req.Header.Set("Authorization", "Bearer "+ceoKey)
 	req.Header.Set("Content-Type", "application/json")

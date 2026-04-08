@@ -734,27 +734,27 @@ type TimelineEntry struct {
 }
 
 func (d *DB) ActivityTimeline48h() ([]TimelineEntry, error) {
-        since := time.Now().UTC().UTC().Add(-48 * time.Hour).Format("2006-01-02 15:04:05")
-        rows, err := d.Query(`SELECT strftime('%Y-%m-%d %H:00', substr(created_at, 1, 19)) as hour,
+	since := time.Now().UTC().UTC().Add(-48 * time.Hour).Format("2006-01-02 15:04:05")
+	rows, err := d.Query(`SELECT strftime('%Y-%m-%d %H:00', substr(created_at, 1, 19)) as hour,
                 entity_type, entity_id, count(*) as cnt
                 FROM activity_log
                 WHERE created_at >= ? AND entity_type != 'system'
                 GROUP BY hour, entity_type, entity_id
                 ORDER BY hour ASC, cnt DESC`, since)
-        if err != nil {
-                return nil, err
-        }
-        defer rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-        var entries []TimelineEntry
-        for rows.Next() {
-                var e TimelineEntry
-                if err := rows.Scan(&e.Hour, &e.EntityType, &e.EntityID, &e.Count); err != nil {
-                        return nil, err
-                }
-                entries = append(entries, e)
-        }
-        return entries, rows.Err()
+	var entries []TimelineEntry
+	for rows.Next() {
+		var e TimelineEntry
+		if err := rows.Scan(&e.Hour, &e.EntityType, &e.EntityID, &e.Count); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
 }
 
 func (d *DB) GetDailyActivityStats(days int) ([]models.DailyStat, error) {
@@ -774,9 +774,9 @@ func (d *DB) GetDailyActivityStats(days int) ([]models.DailyStat, error) {
 			COALESCE(SUM(CASE WHEN a.action = 'delete' THEN 1 ELSE 0 END), 0) as deletions,
 			COALESCE(SUM(CASE WHEN a.action = 'backlog' THEN 1 ELSE 0 END), 0) as backlogs,
 			COALESCE(SUM(CASE WHEN a.action = 'recovery' THEN 1 ELSE 0 END), 0) as recoveries,
-			COALESCE(SUM(CASE WHEN a.action = 'update' AND a.details = 'done' THEN 1 ELSE 0 END), 0) as completed
+			COALESCE(SUM(CASE WHEN a.action = 'update' AND (a.details = 'completed' OR a.details LIKE 'done%') THEN 1 ELSE 0 END), 0) as completed
 		FROM dates d
-		LEFT JOIN activity_log a ON DATE(a.created_at) = d.date
+		LEFT JOIN activity_log a ON COALESCE(DATE(a.created_at), SUBSTR(a.created_at, 1, 10)) = d.date
 		GROUP BY d.date
 		ORDER BY d.date ASC
 	`
@@ -802,6 +802,7 @@ func (d *DB) GetDailyActivityStats(days int) ([]models.DailyStat, error) {
 	}
 	return stats, rows.Err()
 }
+
 // --- Dashboard ---
 
 func (d *DB) GetDashboardStats() (*models.DashboardStats, error) {
@@ -1221,16 +1222,16 @@ func scanPatches(rows *sql.Rows) ([]models.ArchetypePatch, error) {
 // --- Board Policies ---
 
 func (d *DB) CreateBoardPolicy(bp *models.BoardPolicy) error {
-        if bp.ID == "" {
-                bp.ID = uuid.NewString()
-        }
-        now := time.Now().UTC()
-        bp.CreatedAt = now
-        bp.UpdatedAt = now
-        bp.Active = true
-        _, err := d.Exec(`INSERT INTO board_policies (id, directive, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-                bp.ID, bp.Directive, bp.Active, bp.CreatedAt, bp.UpdatedAt)
-        return err
+	if bp.ID == "" {
+		bp.ID = uuid.NewString()
+	}
+	now := time.Now().UTC()
+	bp.CreatedAt = now
+	bp.UpdatedAt = now
+	bp.Active = true
+	_, err := d.Exec(`INSERT INTO board_policies (id, directive, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+		bp.ID, bp.Directive, bp.Active, bp.CreatedAt, bp.UpdatedAt)
+	return err
 }
 func (d *DB) ListBoardPolicies() ([]models.BoardPolicy, error) {
 	rows, err := d.Query(`SELECT id, directive, active, created_at, updated_at FROM board_policies ORDER BY created_at`)

@@ -53,6 +53,14 @@
     .summary-value { font-size: 18px; font-weight: 600; color: rgb(var(--c-ink)); line-height: 1; font-variant-numeric: tabular-nums; }
     .summary-label { font-size: 10px; color: rgb(var(--c-ink3) / 0.5); }
     .summary-divider { width: 1px; height: 28px; background: rgb(var(--c-bd)); }
+    .stats-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+    .stats-card { border: 1px solid rgb(var(--c-bd)); background: rgb(var(--c-sf) / 0.5); border-radius: 8px; padding: 12px; min-width: 120px; }
+    .stats-kicker { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: rgb(var(--c-ink3) / 0.5); margin-bottom: 6px; }
+    .stats-value { display: block; font-size: 21px; font-weight: 600; line-height: 1.1; color: rgb(var(--c-ink)); font-variant-numeric: tabular-nums; }
+    .stats-meta { display: block; font-size: 11px; color: rgb(var(--c-ink3) / 0.65); margin-top: 4px; }
+    .summary-header { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: rgb(var(--c-ink3) / 0.5); margin-top: 16px; padding-top: 12px; border-top: 1px solid rgb(var(--c-bd)); }
+    @media (max-width: 900px) { .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 560px) { .stats-grid { grid-template-columns: 1fr; } }
     @media (max-width: 480px) { .y-ticks { display: none; } }
     </style>
 
@@ -71,6 +79,36 @@
           <div class="legend-item"><div class="legend-swatch completed"></div>Completed</div>
         </div>
       </div>
+
+      {{with .Overview}}
+      <div class="stats-grid">
+        <div class="stats-card">
+          <span class="stats-kicker">Task cadence</span>
+          <span class="stats-value">{{.ActiveDays}} / {{.WindowDays}}</span>
+          <span class="stats-meta">active days in the window</span>
+        </div>
+        <div class="stats-card">
+          <span class="stats-kicker">Current streak</span>
+          <span class="stats-value">{{.CurrentStreak}}</span>
+          <span class="stats-meta">{{.LongestStreak}} day best streak</span>
+        </div>
+        <div class="stats-card">
+          <span class="stats-kicker">Average load</span>
+          <span class="stats-value">{{printf "%.1f" .AvgPerDay}}</span>
+          <span class="stats-meta">actions per day</span>
+        </div>
+        <div class="stats-card">
+          <span class="stats-kicker">Busiest day</span>
+          <span class="stats-value">{{.BusiestDayCount}}</span>
+          <span class="stats-meta">{{.BusiestDayLabel}}</span>
+        </div>
+        <div class="stats-card">
+          <span class="stats-kicker">Tasks completed</span>
+          <span class="stats-value">{{.Completed}}</span>
+          <span class="stats-meta">done transitions captured</span>
+        </div>
+      </div>
+      {{end}}
 
       {{$maxVal := 1}}
       {{$totalCreations := 0}}
@@ -151,6 +189,7 @@
         </div>
       </div>
 
+      <div class="summary-header">Activity totals</div>
       <div class="summary-row overflow-x-auto pb-2">
         <div class="summary-stat"><span class="summary-value">{{$totalCreations}}</span><span class="summary-label">creation</span></div>
         <div class="summary-divider"></div>

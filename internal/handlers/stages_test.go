@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -133,7 +134,7 @@ func TestUpdateIssue_Stages(t *testing.T) {
 		{ID: 1, Title: "Stage 1", Status: "todo"},
 	}
 	body := map[string]any{
-		"stages": stages,
+		"stages":           stages,
 		"current_stage_id": 1,
 	}
 	jsonBody, _ := json.Marshal(body)
@@ -154,5 +155,103 @@ func TestUpdateIssue_Stages(t *testing.T) {
 	}
 	if updatedIssue.Stages[0].Title != "Stage 1" {
 		t.Errorf("expected stage title 'Stage 1', got %q", updatedIssue.Stages[0].Title)
+	}
+}
+
+func TestUpdateIssue_StagesValidation(t *testing.T) {
+	d := testDB(t)
+	hub := NewSSEHub()
+	defer hub.Close()
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{})
+
+	agent, agentKey := createAgentWithKey(t, d, "Stage Owner", "stage-owner", "qa")
+
+	issue := &models.Issue{
+		Key:             "SO-2",
+		Title:           "Test Issue",
+		Status:          models.StatusInProgress,
+		AssigneeAgentID: &agent.ID,
+		Stages: []models.IssueStage{
+			{ID: 1, Title: "Setup", Status: "done"},
+			{ID: 2, Title: "Logic", Status: "todo"},
+		},
+		CurrentStageID: 2,
+	}
+	d.CreateIssue(issue)
+
+	req := httptest.NewRequest("PATCH", "/api/v1/issues/SO-2", strings.NewReader(`{
+		"stages":[
+			{"id":1,"title":"Setup","status":"todo"},
+			{"id":2,"title":"Logic","status":"done"}
+		],
+		"current_stage_id":1
+	}`))
+	req.Header.Set("Authorization", "Bearer "+agentKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("key", "SO-2")
+
+	w := httptest.NewRecorder()
+	api.Auth(api.UpdateIssue)(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d: %s", w.Code, w.Body.String())
+	}
+
+	updatedIssue, _ := d.GetIssue("SO-2")
+	if updatedIssue.CurrentStageID != 2 {
+		t.Fatalf("current_stage_id = %d, want 2", updatedIssue.CurrentStageID)
+	}
+	if updatedIssue.Stages[0].Status != "done" || updatedIssue.Stages[1].Status != "todo" {
+		t.Fatalf("issue stages were mutated on invalid update: %+v", updatedIssue.Stages)
+	}
+}
+
+func TestIssueDetail_ToggleStageNormalizesProgress(t *testing.T) {
+	d := testDB(t)
+	hub := NewSSEHub()
+	defer hub.Close()
+	ui := NewUI(d, hub, nil, nil, nil)
+
+	issue := &models.Issue{
+		Key:    "SO-3",
+		Title:  "Test Issue",
+		Status: models.StatusInProgress,
+		Stages: []models.IssueStage{
+			{ID: 1, Title: "Setup", Status: "done"},
+			{ID: 2, Title: "Logic", Status: "done"},
+			{ID: 3, Title: "UI", Status: "done"},
+			{ID: 4, Title: "QA", Status: "todo"},
+		},
+		CurrentStageID: 4,
+	}
+	d.CreateIssue(issue)
+
+	form := "action=toggle_stage&stage_id=2&status=todo"
+	req := httptest.NewRequest("POST", "/issues/SO-3", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	ui.updateIssueUI(w, req, "SO-3")
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("expected redirect status 303, got %d", w.Code)
+	}
+
+	updatedIssue, _ := d.GetIssue("SO-3")
+	if updatedIssue.CurrentStageID != 2 {
+		t.Fatalf("current_stage_id = %d, want 2", updatedIssue.CurrentStageID)
+	}
+
+	got := []string{
+		updatedIssue.Stages[0].Status,
+		updatedIssue.Stages[1].Status,
+		updatedIssue.Stages[2].Status,
+		updatedIssue.Stages[3].Status,
+	}
+	want := []string{"done", "todo", "todo", "todo"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("stage %d status = %s, want %s; stages=%+v", i+1, got[i], want[i], updatedIssue.Stages)
+		}
 	}
 }

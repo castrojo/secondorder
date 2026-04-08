@@ -31,10 +31,11 @@ const (
 
 // Runner types
 const (
-	RunnerClaudeCode   = "claude_code"
-	RunnerGemini       = "gemini"
-	RunnerCodex        = "codex"
-	RunnerAntigravity  = "antigravity"
+	RunnerClaudeCode       = "claude_code"
+	RunnerGemini           = "gemini"
+	RunnerCodex            = "codex"
+	RunnerAntigravity      = "antigravity"
+	DefaultAgentTimeoutSec = 1200
 )
 
 var RunnerModels = map[string][]string{
@@ -172,10 +173,10 @@ type Comment struct {
 type Approval struct {
 	ID          string     `json:"id"`
 	IssueKey    string     `json:"issue_key"`
-	RequestedBy string    `json:"requested_by"`
-	ReviewerID  *string   `json:"reviewer_id"`
-	Status      string    `json:"status"`
-	Comment     string    `json:"comment"`
+	RequestedBy string     `json:"requested_by"`
+	ReviewerID  *string    `json:"reviewer_id"`
+	Status      string     `json:"status"`
+	Comment     string     `json:"comment"`
 	ResolvedAt  *time.Time `json:"resolved_at"`
 	CreatedAt   time.Time  `json:"created_at"`
 }
@@ -274,21 +275,21 @@ type RunEvent struct {
 }
 
 type WorkBlock struct {
-	ID                 string     `json:"id"`
-	Title              string     `json:"title"`
-	Goal               string     `json:"goal"`
-	AcceptanceCriteria string     `json:"acceptance_criteria"`
-	Status             string     `json:"status"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
-	ActivatedAt        *time.Time `json:"activated_at"`
-	CompletedAt        *time.Time `json:"completed_at"`
+	ID                 string          `json:"id"`
+	Title              string          `json:"title"`
+	Goal               string          `json:"goal"`
+	AcceptanceCriteria string          `json:"acceptance_criteria"`
+	Status             string          `json:"status"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
+	ActivatedAt        *time.Time      `json:"activated_at"`
+	CompletedAt        *time.Time      `json:"completed_at"`
 	Issues             []Issue         `json:"issues,omitempty"`
 	Stats              *WorkBlockStats `json:"stats,omitempty"`
 
-	NorthStarMetric    string     `json:"north_star_metric"`
-	NorthStarTarget    string     `json:"north_star_target"`
-	ApexBlockID        *string    `json:"apex_block_id"`
+	NorthStarMetric string  `json:"north_star_metric"`
+	NorthStarTarget string  `json:"north_star_target"`
+	ApexBlockID     *string `json:"apex_block_id"`
 }
 
 type ApexBlock struct {
@@ -342,12 +343,12 @@ type BoardPolicy struct {
 }
 
 type DashboardStats struct {
-        TotalAgents    int     `json:"total_agents"`
-        ActiveAgents   int     `json:"active_agents"`
-        TotalIssues    int     `json:"total_issues"`
-        OpenIssues     int     `json:"open_issues"`
-        RunningRuns    int     `json:"running_runs"`
-        TotalCostToday float64 `json:"total_cost_today"`
+	TotalAgents    int     `json:"total_agents"`
+	ActiveAgents   int     `json:"active_agents"`
+	TotalIssues    int     `json:"total_issues"`
+	OpenIssues     int     `json:"open_issues"`
+	RunningRuns    int     `json:"running_runs"`
+	TotalCostToday float64 `json:"total_cost_today"`
 }
 
 type DailyStat struct {
@@ -363,3 +364,14 @@ type DailyStat struct {
 	Completed     int    `json:"completed"`
 }
 
+type ActivityOverview struct {
+	WindowDays      int     `json:"window_days"`
+	ActiveDays      int     `json:"active_days"`
+	CurrentStreak   int     `json:"current_streak"`
+	LongestStreak   int     `json:"longest_streak"`
+	TotalActions    int     `json:"total_actions"`
+	Completed       int     `json:"completed"`
+	BusiestDayCount int     `json:"busiest_day_count"`
+	BusiestDayLabel string  `json:"busiest_day_label"`
+	AvgPerDay       float64 `json:"avg_per_day"`
+}

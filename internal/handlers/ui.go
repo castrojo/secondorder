@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -173,10 +174,10 @@ func (u *UI) createIssueUI(w http.ResponseWriter, r *http.Request) {
 
 	// SSE broadcast
 	createData, _ := json.Marshal(map[string]any{
-		"key":    key,
-		"title":  issue.Title,
-		"status": issue.Status,
-		"type":   issue.Type,
+		"key":      key,
+		"title":    issue.Title,
+		"status":   issue.Status,
+		"type":     issue.Type,
 		"warnings": warnings,
 	})
 	u.sse.Broadcast("issue_created", string(createData))
@@ -355,19 +356,14 @@ func (u *UI) updateIssueUI(w http.ResponseWriter, r *http.Request, key string) {
 	case "toggle_stage":
 		stageID, _ := strconv.Atoi(r.FormValue("stage_id"))
 		status := r.FormValue("status")
-		if stageID > 0 && stageID <= len(issue.Stages) {
-			issue.Stages[stageID-1].Status = status
-			if status == "done" {
-				if stageID < len(issue.Stages) {
-					issue.CurrentStageID = stageID + 1
-				} else {
-					issue.CurrentStageID = stageID
-				}
-			} else {
-				issue.CurrentStageID = stageID
-			}
-			u.db.UpdateIssue(issue)
+		stages, currentStageID, err := acvalidator.ApplyStageToggle(issue.Stages, stageID, status)
+		if err != nil {
+			http.Redirect(w, r, "/issues/"+key+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+			return
 		}
+		issue.Stages = stages
+		issue.CurrentStageID = currentStageID
+		u.db.UpdateIssue(issue)
 	}
 
 	// Validate AC for UI warning
@@ -398,7 +394,7 @@ func (u *UI) updateIssueUI(w http.ResponseWriter, r *http.Request, key string) {
 	}
 
 	http.Redirect(w, r, "/issues/"+key+"?success=Issue+created"+warningParam, http.StatusSeeOther)
-	}
+}
 
 func (u *UI) ListAgents(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
@@ -435,7 +431,7 @@ func (u *UI) createAgentUI(w http.ResponseWriter, r *http.Request) {
 		ApiKeyEnv:     r.FormValue("api_key_env"),
 		WorkingDir:    r.FormValue("working_dir"),
 		MaxTurns:      50,
-		TimeoutSec:    600,
+		TimeoutSec:    models.DefaultAgentTimeoutSec,
 		Active:        true,
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
@@ -681,10 +677,10 @@ func (u *UI) SearchIssuesAndAgents(w http.ResponseWriter, r *http.Request) {
 	for _, a := range agents {
 		if strings.Contains(strings.ToLower(a.Name), q) || strings.Contains(strings.ToLower(a.Slug), q) {
 			results = append(results, map[string]string{
-				"type": "agent",
-				"key":  a.Slug,
+				"type":  "agent",
+				"key":   a.Slug,
 				"title": a.Name,
-				"url":  "/agents/" + a.Slug,
+				"url":   "/agents/" + a.Slug,
 			})
 		}
 	}
@@ -814,29 +810,76 @@ func (u *UI) updateWorkBlockUI(w http.ResponseWriter, r *http.Request, id string
 }
 
 func (u *UI) ActivityPage(w http.ResponseWriter, r *http.Request) {
-        pageStr := r.URL.Query().Get("page")
-        page, _ := strconv.Atoi(pageStr)
-        if page < 1 {
-                page = 1
-        }
-        limit := 30
-        offset := (page - 1) * limit
+	pageStr := r.URL.Query().Get("page")
+	page, _ := strconv.Atoi(pageStr)
+	if page < 1 {
+		page = 1
+	}
+	limit := 30
+	offset := (page - 1) * limit
 
-        logs, _ := u.db.ListActivity(limit, offset)
-        total, _ := u.db.CountActivity()
-        dailyStats, _ := u.db.GetDailyActivityStats(14)
+	logs, _ := u.db.ListActivity(limit, offset)
+	total, _ := u.db.CountActivity()
+	dailyStats, _ := u.db.GetDailyActivityStats(14)
+	overview := buildActivityOverview(dailyStats)
 
-        u.render(w, "activity", map[string]any{
-                "Logs":       logs,
-                "DailyStats": dailyStats,
-                "Page":       page,
-                "Total":      total,
-                "Limit":      limit,
-                "HasNext":    total > page*limit,
-                "HasPrev":    page > 1,
-                "NextPage":   page + 1,
-                "PrevPage":   page - 1,
-        })
+	u.render(w, "activity", map[string]any{
+		"Logs":       logs,
+		"DailyStats": dailyStats,
+		"Overview":   overview,
+		"Page":       page,
+		"Total":      total,
+		"Limit":      limit,
+		"HasNext":    total > page*limit,
+		"HasPrev":    page > 1,
+		"NextPage":   page + 1,
+		"PrevPage":   page - 1,
+	})
+}
+
+func buildActivityOverview(dailyStats []models.DailyStat) models.ActivityOverview {
+	overview := models.ActivityOverview{
+		WindowDays: len(dailyStats),
+	}
+	streak := 0
+
+	for _, stat := range dailyStats {
+		dayTotal := totalActivityForDay(stat)
+		overview.TotalActions += dayTotal
+		overview.Completed += stat.Completed
+
+		if dayTotal > overview.BusiestDayCount {
+			overview.BusiestDayCount = dayTotal
+			overview.BusiestDayLabel = stat.Label
+		}
+
+		if dayTotal > 0 {
+			overview.ActiveDays++
+			streak++
+			overview.CurrentStreak = streak
+			if streak > overview.LongestStreak {
+				overview.LongestStreak = streak
+			}
+			continue
+		}
+
+		streak = 0
+		overview.CurrentStreak = 0
+	}
+
+	if overview.WindowDays > 0 {
+		overview.AvgPerDay = float64(overview.TotalActions) / float64(overview.WindowDays)
+	}
+	if overview.BusiestDayLabel == "" {
+		overview.BusiestDayLabel = "No activity yet"
+	}
+
+	return overview
+}
+
+func totalActivityForDay(stat models.DailyStat) int {
+	return stat.Creations + stat.Updates + stat.Checkouts + stat.AssignToBlock +
+		stat.Deletions + stat.Backlog + stat.Recovery + stat.Completed
 }
 func (u *UI) PoliciesPage(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {

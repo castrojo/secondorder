@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS agents (
     model TEXT NOT NULL DEFAULT 'sonnet',
     working_dir TEXT NOT NULL DEFAULT '.',
     max_turns INTEGER NOT NULL DEFAULT 50,
-    timeout_sec INTEGER NOT NULL DEFAULT 600,
+    timeout_sec INTEGER NOT NULL DEFAULT 1200,
     heartbeat_enabled INTEGER NOT NULL DEFAULT 0,
     heartbeat_cron TEXT NOT NULL DEFAULT '',
     chrome_enabled INTEGER NOT NULL DEFAULT 0,

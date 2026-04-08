@@ -120,7 +120,7 @@ func main() {
 	// Scheduler
 	portInt := 3001
 	if p, err := parsePort(port); err == nil {
-	        portInt = p
+		portInt = p
 	}
 	sched := scheduler.New(database, portInt)
 
@@ -136,7 +136,7 @@ func main() {
 
 	// Set activity callback
 	sched.SetOnActivity(func(action, entityType, entityID string, agentID *string, details string) {
-	        handlers.LogActivityAndBroadcast(database, sse, tmpl, action, entityType, entityID, agentID, details)
+		handlers.LogActivityAndBroadcast(database, sse, tmpl, action, entityType, entityID, agentID, details)
 	})
 
 	// Wire wake function
@@ -410,7 +410,7 @@ func applyStartupTemplate(database *db.DB, templateName, defaultModel string) {
 			Runner:           runner,
 			WorkingDir:       ".",
 			MaxTurns:         50,
-			TimeoutSec:       600,
+			TimeoutSec:       models.DefaultAgentTimeoutSec,
 			HeartbeatEnabled: a.HeartbeatEnabled,
 			ChromeEnabled:    a.ChromeEnabled,
 			Active:           true,

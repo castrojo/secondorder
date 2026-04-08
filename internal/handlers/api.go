@@ -123,8 +123,8 @@ func (a *API) CheckoutIssue(w http.ResponseWriter, r *http.Request) {
 	})
 	a.sse.Broadcast("issue_updated", string(checkoutData))
 
-	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
-"checkout", "issue", key, &agent.ID, "")
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl,
+		"checkout", "issue", key, &agent.ID, "")
 	jsonOK(w, map[string]string{"status": "checked_out"})
 }
 
@@ -137,15 +137,15 @@ func (a *API) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Status         string              `json:"status"`
-		Type           string              `json:"type"`
-		Comment        string              `json:"comment"`
-		Title          string              `json:"title"`
-		Description    string              `json:"description"`
-		Priority       *int                `json:"priority"`
-		AssigneeSlug   *string             `json:"assignee_slug"`
+		Status         string               `json:"status"`
+		Type           string               `json:"type"`
+		Comment        string               `json:"comment"`
+		Title          string               `json:"title"`
+		Description    string               `json:"description"`
+		Priority       *int                 `json:"priority"`
+		AssigneeSlug   *string              `json:"assignee_slug"`
 		Stages         *[]models.IssueStage `json:"stages"`
-		CurrentStageID *int                `json:"current_stage_id"`
+		CurrentStageID *int                 `json:"current_stage_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, "invalid body", http.StatusBadRequest)
@@ -195,6 +195,10 @@ func (a *API) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 			issue.AssigneeAgentID = &newAssignee.ID
 		}
 	}
+	if err := acvalidator.ValidateStages(issue.Stages, issue.CurrentStageID); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	if err := a.db.UpdateIssue(issue); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
@@ -229,11 +233,11 @@ func (a *API) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 			agentName = agent.Name
 		}
 		comment := &models.Comment{
-			ID:        uuid.New().String(),
-			IssueKey:  key,
-			AgentID:   ptrStr(agent),
-			Author:    agentName,
-			Body:      body.Comment,
+			ID:       uuid.New().String(),
+			IssueKey: key,
+			AgentID:  ptrStr(agent),
+			Author:   agentName,
+			Body:     body.Comment,
 		}
 		a.db.CreateComment(comment)
 
@@ -261,8 +265,8 @@ func (a *API) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 			details = msg
 		}
 	}
-	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
-"update", "issue", key, ptrStr(agent), details)
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl,
+		"update", "issue", key, ptrStr(agent), details)
 
 	// Wake chain on status change
 	if body.Status == models.StatusDone || body.Status == models.StatusBlocked || body.Status == models.StatusInReview {
@@ -272,7 +276,7 @@ func (a *API) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Wake assignee when reviewer sends work back to in_progress OR when re-assigned in_progress issue
-	isReassignedInProgress := body.AssigneeSlug != nil && issue.Status == models.StatusInProgress && 
+	isReassignedInProgress := body.AssigneeSlug != nil && issue.Status == models.StatusInProgress &&
 		(oldAssigneeID == nil || (issue.AssigneeAgentID != nil && *oldAssigneeID != *issue.AssigneeAgentID))
 
 	if (body.Status == models.StatusInProgress || isReassignedInProgress) && agent != nil && issue.AssigneeAgentID != nil && *issue.AssigneeAgentID != agent.ID {
@@ -331,8 +335,8 @@ func (a *API) DeleteIssue(w http.ResponseWriter, r *http.Request) {
 	})
 	a.sse.Broadcast("issue_deleted", string(deleteData))
 
-	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
-"delete", "issue", key, nil, "")
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl,
+		"delete", "issue", key, nil, "")
 	jsonOK(w, map[string]string{"deleted": key})
 }
 
@@ -391,7 +395,7 @@ func (a *API) CreateComment(w http.ResponseWriter, r *http.Request) {
 	if matches := stagesRegex.FindStringSubmatch(body.Body); len(matches) > 1 {
 		rawStages := matches[1]
 		stageTitles := regexp.MustCompile(`\[([^\]]+)\]`).FindAllStringSubmatch(rawStages, -1)
-		
+
 		var newStages []models.IssueStage
 		for i, titleMatch := range stageTitles {
 			newStages = append(newStages, models.IssueStage{
@@ -414,7 +418,7 @@ func (a *API) CreateComment(w http.ResponseWriter, r *http.Request) {
 			for j := 0; j < stageID; j++ {
 				issue.Stages[j].Status = "done"
 			}
-			
+
 			if stageID < len(issue.Stages) {
 				issue.CurrentStageID = stageID + 1
 			} else {
@@ -433,7 +437,7 @@ func (a *API) CreateComment(w http.ResponseWriter, r *http.Request) {
 				Body:     ackBody,
 			}
 			a.db.CreateComment(ackComment)
-			
+
 			ackData, _ := json.Marshal(map[string]string{
 				"issue_key": key,
 				"author":    "System",
@@ -444,6 +448,10 @@ func (a *API) CreateComment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if updated {
+		if err := acvalidator.ValidateStages(issue.Stages, issue.CurrentStageID); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		a.db.UpdateIssue(issue)
 		// Broadcast issue_updated
 		updateData, _ := json.Marshal(map[string]any{
@@ -545,8 +553,8 @@ func (a *API) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	a.sse.Broadcast("issue_created", string(createData))
 
 	agent := agentFromContext(r.Context())
-	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
-"create", "issue", key, ptrStr(agent), body.Title)
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl,
+		"create", "issue", key, ptrStr(agent), body.Title)
 
 	// Wake assigned agent
 	if assignee != nil && a.wake != nil {
@@ -808,8 +816,8 @@ func (a *API) CreateWorkBlock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agent := agentFromContext(r.Context())
-	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
-"create", "work_block", wb.ID, ptrStr(agent), body.Title)
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl,
+		"create", "work_block", wb.ID, ptrStr(agent), body.Title)
 
 	if a.telegram != nil {
 		go a.telegram.SendWorkBlockApproval(wb.ID, wb.Title, wb.Goal, "proposed")
@@ -874,8 +882,8 @@ func (a *API) UpdateWorkBlock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agent := agentFromContext(r.Context())
-	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
-"update", "work_block", id, ptrStr(agent), wb.Status)
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl,
+		"update", "work_block", id, ptrStr(agent), wb.Status)
 
 	jsonOK(w, wb)
 }
@@ -906,8 +914,8 @@ func (a *API) AssignIssueToBlock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agent := agentFromContext(r.Context())
-	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
-"assign_to_block", "issue", body.IssueKey, ptrStr(agent), id)
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl,
+		"assign_to_block", "issue", body.IssueKey, ptrStr(agent), id)
 
 	jsonOK(w, map[string]string{"status": "assigned"})
 }
@@ -945,8 +953,8 @@ func (a *API) CreateArchetypePatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agent := agentFromContext(r.Context())
-	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
-"propose_patch", "archetype", body.AgentSlug, ptrStr(agent), "")
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl,
+		"propose_patch", "archetype", body.AgentSlug, ptrStr(agent), "")
 
 	w.WriteHeader(http.StatusCreated)
 	jsonOK(w, patch)
@@ -970,8 +978,8 @@ func (a *API) UnassignIssueFromBlock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agent := agentFromContext(r.Context())
-	LogActivityAndBroadcast(a.db, a.sse, a.tmpl, 
-"unassign_from_block", "issue", key, ptrStr(agent), "")
+	LogActivityAndBroadcast(a.db, a.sse, a.tmpl,
+		"unassign_from_block", "issue", key, ptrStr(agent), "")
 
 	jsonOK(w, map[string]string{"status": "unassigned"})
 }
