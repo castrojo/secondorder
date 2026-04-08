@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/msoedov/secondorder/internal/models"
 )
 
 //go:embed *.html
@@ -84,50 +86,68 @@ var funcMap = template.FuncMap{
 	"add": func(a, b any) int {
 		var av, bv int64
 		switch v := a.(type) {
-		case int: av = int64(v)
-		case int64: av = v
+		case int:
+			av = int64(v)
+		case int64:
+			av = v
 		}
 		switch v := b.(type) {
-		case int: bv = int64(v)
-		case int64: bv = v
+		case int:
+			bv = int64(v)
+		case int64:
+			bv = v
 		}
 		return int(av + bv)
 	},
 	"sub": func(a, b any) int {
 		var av, bv int64
 		switch v := a.(type) {
-		case int: av = int64(v)
-		case int64: av = v
+		case int:
+			av = int64(v)
+		case int64:
+			av = v
 		}
 		switch v := b.(type) {
-		case int: bv = int64(v)
-		case int64: bv = v
+		case int:
+			bv = int64(v)
+		case int64:
+			bv = v
 		}
 		return int(av - bv)
 	},
 	"mult": func(a, b any) float64 {
-	        var av, bv float64
-	        switch v := a.(type) {
-	        case int: av = float64(v)
-	        case int64: av = float64(v)
-	        case float64: av = v
-	        }
-	        switch v := b.(type) {
-	        case int: bv = float64(v)
-	        case int64: bv = float64(v)
-	        case float64: bv = v
-	        }
-	        return av * bv
+		var av, bv float64
+		switch v := a.(type) {
+		case int:
+			av = float64(v)
+		case int64:
+			av = float64(v)
+		case float64:
+			av = v
+		}
+		switch v := b.(type) {
+		case int:
+			bv = float64(v)
+		case int64:
+			bv = float64(v)
+		case float64:
+			bv = v
+		}
+		return av * bv
 	},
 	"mod": func(a, b any) int {
 		var av, bv int64
 		switch v := a.(type) {
-		case int: av = int64(v)
-		case int64: av = v
+		case int:
+			av = int64(v)
+		case int64:
+			av = v
 		}
 		switch v := b.(type) {
-		case int: bv = int64(v)
-		case int64: bv = v
+		case int:
+			bv = int64(v)
+		case int64:
+			bv = v
 		}
 		if bv == 0 {
 			return 0
@@ -136,56 +156,69 @@ var funcMap = template.FuncMap{
 	},
 	"wbStatusColor": wbStatusColor,
 	"derefTime": func(t *time.Time) time.Time {
-	        if t == nil {
-	                return time.Time{}
-	        }
-	        return *t
+		if t == nil {
+			return time.Time{}
+		}
+		return *t
 	},
 	"max": func(a, b any) int {
 		var av, bv int64
 		switch v := a.(type) {
-		case int: av = int64(v)
-		case int64: av = v
+		case int:
+			av = int64(v)
+		case int64:
+			av = v
 		}
 		switch v := b.(type) {
-		case int: bv = int64(v)
-		case int64: bv = v
+		case int:
+			bv = int64(v)
+		case int64:
+			bv = v
 		}
-	        if av > bv {
-	                return int(av)
-	        }
-	        return int(bv)
+		if av > bv {
+			return int(av)
+		}
+		return int(bv)
 	},
 	"ceil": func(f any) int {
-	        switch v := f.(type) {
-	        case float64:
-	                return int(math.Ceil(v))
-	        case int:
-	                return v
-	        case int64:
-	                return int(v)
-	        default:
-	                return 0
-	        }
+		switch v := f.(type) {
+		case float64:
+			return int(math.Ceil(v))
+		case int:
+			return v
+		case int64:
+			return int(v)
+		default:
+			return 0
+		}
 	},
 	"div": func(a, b any) float64 {
-	        var av, bv float64
-	        switch v := a.(type) {
-	        case int: av = float64(v)
-	        case int64: av = float64(v)
-	        case float64: av = v
-	        }
-	        switch v := b.(type) {
-	        case int: bv = float64(v)
-	        case int64: bv = float64(v)
-	        case float64: bv = v
-	        }
-	        if bv == 0 {
-	                return 0
-	        }
-	        return av / bv
+		var av, bv float64
+		switch v := a.(type) {
+		case int:
+			av = float64(v)
+		case int64:
+			av = float64(v)
+		case float64:
+			av = v
+		}
+		switch v := b.(type) {
+		case int:
+			bv = float64(v)
+		case int64:
+			bv = float64(v)
+		case float64:
+			bv = v
+		}
+		if bv == 0 {
+			return 0
+		}
+		return av / bv
 	},
-	}
+	"completedStages":  completedStages,
+	"stageProgressPct": stageProgressPct,
+	"stageStateLabel":  stageStateLabel,
+}
 
 func timeAgo(t time.Time) string {
 	d := time.Since(t)
@@ -211,6 +244,33 @@ func timeAgo(t time.Time) string {
 		}
 		return fmt.Sprintf("%dd ago", days)
 	}
+}
+
+func completedStages(stages []models.IssueStage) int {
+	count := 0
+	for _, stage := range stages {
+		if stage.Status == "done" {
+			count++
+		}
+	}
+	return count
+}
+
+func stageProgressPct(stages []models.IssueStage) int {
+	if len(stages) == 0 {
+		return 0
+	}
+	return int(math.Round(float64(completedStages(stages)) / float64(len(stages)) * 100))
+}
+
+func stageStateLabel(stage models.IssueStage, currentStageID int) string {
+	if stage.Status == "done" {
+		return "Done"
+	}
+	if stage.ID == currentStageID {
+		return "In Progress"
+	}
+	return "Todo"
 }
 
 func statusColor(s string) string {

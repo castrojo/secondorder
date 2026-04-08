@@ -358,6 +358,10 @@ func (u *UI) updateIssueUI(w http.ResponseWriter, r *http.Request, key string) {
 		status := r.FormValue("status")
 		stages, currentStageID, err := acvalidator.ApplyStageToggle(issue.Stages, stageID, status)
 		if err != nil {
+			if r.Header.Get("HX-Request") != "" {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 			http.Redirect(w, r, "/issues/"+key+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 			return
 		}
@@ -387,6 +391,11 @@ func (u *UI) updateIssueUI(w http.ResponseWriter, r *http.Request, key string) {
 		"warnings":         warnings,
 	})
 	u.sse.Broadcast("issue_updated", string(updateData))
+
+	if r.Header.Get("HX-Request") != "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 
 	warningParam := ""
 	if len(warnings) > 0 {

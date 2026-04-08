@@ -648,6 +648,47 @@ func TestIssueDetail_WithSections(t *testing.T) {
 	}
 }
 
+func TestIssueDetail_RendersStagesUI(t *testing.T) {
+	d := testDB(t)
+	ui := testUI(t, d)
+
+	issue := &models.Issue{
+		ID:    uuid.New().String(),
+		Key:   "SO-9",
+		Title: "Stageful Issue",
+		Stages: []models.IssueStage{
+			{ID: 1, Title: "Setup", Status: "done"},
+			{ID: 2, Title: "Core Logic", Status: "todo"},
+			{ID: 3, Title: "UI", Status: "todo"},
+		},
+		CurrentStageID: 2,
+	}
+	d.CreateIssue(issue)
+
+	req := httptest.NewRequest("GET", "/issues/SO-9", nil)
+	req.SetPathValue("key", "SO-9")
+	w := httptest.NewRecorder()
+
+	ui.IssueDetail(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	body := w.Body.String()
+	for _, want := range []string{
+		"Implementation Progress",
+		"1 / 3 Stages Complete (33%)",
+		`id="issue-stage-progress"`,
+		`hx-trigger="issue-changed:SO-9 from:body"`,
+		`id="issue-stage-checklist"`,
+		"Check to acknowledge stage completion. Updates in real time.",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %q", want)
+		}
+	}
+}
+
 // --- Settings ---
 
 func TestSettingsGET(t *testing.T) {

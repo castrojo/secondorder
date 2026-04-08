@@ -255,3 +255,39 @@ func TestIssueDetail_ToggleStageNormalizesProgress(t *testing.T) {
 		}
 	}
 }
+
+func TestIssueDetail_ToggleStageHTMXReturnsNoContent(t *testing.T) {
+	d := testDB(t)
+	hub := NewSSEHub()
+	defer hub.Close()
+	ui := NewUI(d, hub, nil, nil, nil)
+
+	issue := &models.Issue{
+		Key:    "SO-4",
+		Title:  "HTMX Toggle",
+		Status: models.StatusInProgress,
+		Stages: []models.IssueStage{
+			{ID: 1, Title: "Setup", Status: "done"},
+			{ID: 2, Title: "Logic", Status: "todo"},
+		},
+		CurrentStageID: 2,
+	}
+	d.CreateIssue(issue)
+
+	form := "action=toggle_stage&stage_id=2&status=done"
+	req := httptest.NewRequest("POST", "/issues/SO-4", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+
+	ui.updateIssueUI(w, req, "SO-4")
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusNoContent)
+	}
+
+	updatedIssue, _ := d.GetIssue("SO-4")
+	if updatedIssue.Stages[1].Status != "done" {
+		t.Fatalf("stage 2 status = %s, want done", updatedIssue.Stages[1].Status)
+	}
+}

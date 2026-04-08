@@ -1,5 +1,7 @@
 # Tech Spec: Full Support for Gemini Runner (SO-47)
 
+> Status verified on 2026-04-08 for SO-112: keep this doc. Gemini support remains active in the codebase and later infrastructure updates in `artifact-docs/infra/SO-92-model-updates.md` supersede the specific model list here.
+
 ## Overview
 This specification details the changes made to fully restore and support the Gemini runner in SecondOrder. While Gemini was partially present in the UI, several key areas were missing support, including token usage display, comprehensive validation tests, and correct handling during initial organization bootstrapping.
 

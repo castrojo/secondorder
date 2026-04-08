@@ -391,12 +391,18 @@ function escapeHtml(s) {
 
 /* SSE connection */
 let sse;
+function dispatchIssueChanged(detail) {
+  document.body.dispatchEvent(new CustomEvent('issue-changed', {detail}));
+  if (detail && detail.key) {
+    document.body.dispatchEvent(new CustomEvent('issue-changed:' + detail.key, {detail}));
+  }
+}
 function connectSSE() {
   sse = new EventSource('/events');
   sse.addEventListener('comment', e => {
     const d = JSON.parse(e.data);
     showToast(d.author + ' on ' + d.issue_key, d.body.substring(0, 80), '/issues/' + d.issue_key);
-    document.body.dispatchEvent(new CustomEvent('issue-changed', {detail: {key: d.issue_key}}));
+    dispatchIssueChanged({key: d.issue_key});
   });
   sse.addEventListener('issue_created', e => {
     const d = JSON.parse(e.data);
@@ -404,7 +410,7 @@ function connectSSE() {
     if (d.warnings && d.warnings.length > 0) {
       d.warnings.forEach(w => showToast('Warning', w, '/issues/' + d.key));
     }
-    document.body.dispatchEvent(new CustomEvent('issue-changed', {detail: {key: d.key}}));
+    dispatchIssueChanged({key: d.key});
   });
   sse.addEventListener('issue_updated', e => {
     const d = JSON.parse(e.data);
@@ -412,12 +418,12 @@ function connectSSE() {
     if (d.warnings && d.warnings.length > 0) {
       d.warnings.forEach(w => showToast('Warning', w, '/issues/' + d.key));
     }
-    document.body.dispatchEvent(new CustomEvent('issue-changed', {detail: {key: d.key}}));
+    dispatchIssueChanged({key: d.key});
   });
   sse.addEventListener('issue_deleted', e => {
     const d = JSON.parse(e.data);
     showToast('Issue Deleted', d.key);
-    document.body.dispatchEvent(new CustomEvent('issue-changed', {detail: {key: d.key}}));
+    dispatchIssueChanged({key: d.key});
   });
   sse.addEventListener('agent_created', e => {
     const d = JSON.parse(e.data);

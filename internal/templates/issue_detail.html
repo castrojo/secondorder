@@ -1,3 +1,82 @@
+{{define "issue_detail_stage_progress"}}
+{{if .Issue.Stages}}
+<div id="issue-stage-progress"
+     hx-get="/issues/{{.Issue.Key}}"
+     hx-select="#issue-stage-progress"
+     hx-target="#issue-stage-progress"
+     hx-swap="outerHTML"
+     hx-trigger="issue-changed:{{.Issue.Key}} from:body"
+     class="bg-card border border-bd rounded-lg p-4">
+  <div class="flex items-center justify-between gap-3 mb-3">
+    <h3 class="text-[13px] font-medium text-ink2">Implementation Progress</h3>
+    <span class="text-[11px] font-mono text-ink3/60">{{completedStages .Issue.Stages}} / {{len .Issue.Stages}} Stages Complete ({{stageProgressPct .Issue.Stages}}%)</span>
+  </div>
+  <div class="flex h-2.5 gap-1.5">
+    {{range .Issue.Stages}}
+    <div class="flex-1 rounded-full group relative cursor-help {{if eq .Status "done"}}bg-ac{{else}}bg-sf border border-bd{{end}} {{if and (eq .ID $.Issue.CurrentStageID) (ne .Status "done")}}overflow-hidden{{end}}"
+         aria-label="Stage {{.ID}}: {{.Title}} - {{stageStateLabel . $.Issue.CurrentStageID}}"
+         title="Stage {{.ID}}: {{.Title}} - {{stageStateLabel . $.Issue.CurrentStageID}}">
+      {{if and (eq .ID $.Issue.CurrentStageID) (ne .Status "done")}}
+      <div class="absolute inset-0 bg-ac/30 animate-pulse"></div>
+      {{end}}
+      <div class="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 translate-y-1 whitespace-nowrap rounded bg-ink px-2 py-1 text-[10px] text-pg opacity-0 transition-all group-hover:translate-y-0 group-hover:opacity-100">
+        Stage {{.ID}}: {{.Title}} - {{stageStateLabel . $.Issue.CurrentStageID}}
+      </div>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}
+{{end}}
+
+{{define "issue_detail_stage_checklist"}}
+{{if .Issue.Stages}}
+<div id="issue-stage-checklist"
+     hx-get="/issues/{{.Issue.Key}}"
+     hx-select="#issue-stage-checklist"
+     hx-target="#issue-stage-checklist"
+     hx-swap="outerHTML"
+     hx-trigger="issue-changed:{{.Issue.Key}} from:body"
+     class="bg-card border border-bd rounded-lg p-3">
+  <div class="mb-2.5 flex items-center justify-between text-[11px] font-medium uppercase tracking-wider text-ink3/50">
+    <span>Stages</span>
+    <span class="text-[10px] font-mono">{{completedStages .Issue.Stages}}/{{len .Issue.Stages}}</span>
+  </div>
+  <div class="space-y-2">
+    {{range .Issue.Stages}}
+    <form method="POST"
+          action="/issues/{{$.Issue.Key}}"
+          hx-post="/issues/{{$.Issue.Key}}"
+          hx-swap="none"
+          class="group">
+      <input type="hidden" name="action" value="toggle_stage">
+      <input type="hidden" name="stage_id" value="{{.ID}}">
+      <input type="hidden" name="status" value="{{if eq .Status "done"}}todo{{else}}done{{end}}">
+      <div class="flex items-start gap-2.5">
+        <input id="issue-stage-{{$.Issue.Key}}-{{.ID}}"
+               type="checkbox"
+               {{if eq .Status "done"}}checked{{end}}
+               onchange="this.form.requestSubmit()"
+               class="mt-0.5 h-3.5 w-3.5 cursor-pointer rounded border-bd bg-sf text-ac transition-all focus:ring-ac/20">
+        <label for="issue-stage-{{$.Issue.Key}}-{{.ID}}"
+               class="relative cursor-pointer leading-tight transition-colors {{if eq .Status "done"}}text-[13px] text-ink3/50 line-through{{else if and (eq .ID $.Issue.CurrentStageID) (ne .Status "done")}}text-[13px] font-medium text-ink2 group-hover:text-ink{{else}}text-[13px] text-ink3 group-hover:text-ink{{end}}">
+          {{.Title}}
+          {{if and (eq .ID $.Issue.CurrentStageID) (ne .Status "done")}}
+          <span class="absolute -right-6 top-0.5 h-1.5 w-1.5 rounded-full bg-ac animate-ping"></span>
+          <span class="absolute -right-6 top-0.5 h-1.5 w-1.5 rounded-full bg-ac/60"></span>
+          {{end}}
+        </label>
+      </div>
+    </form>
+    {{end}}
+  </div>
+  <div class="mt-3 border-t border-bd/50 pt-3 text-[10px] italic text-ink3/40">
+    Check to acknowledge stage completion. Updates in real time.
+  </div>
+</div>
+{{end}}
+{{end}}
+
 {{template "head" .}}
 {{template "nav" .}}
 <main class="flex-1 ml-0 md:ml-56 p-8 pt-16 md:pt-8 mt-[3px]">
@@ -30,6 +109,8 @@
     <div class="flex gap-6">
       <!-- Main -->
       <div class="flex-1 min-w-0 space-y-6 slide-up">
+
+        {{template "issue_detail_stage_progress" .}}
 
         <!-- Title & Description -->
         <div>
@@ -113,6 +194,8 @@
 
       <!-- Sidebar -->
       <div class="w-56 shrink-0 space-y-3">
+        {{template "issue_detail_stage_checklist" .}}
+
         <div class="bg-card border border-bd rounded-lg p-3">
           <div class="text-[11px] font-medium text-ink3/50 uppercase tracking-wider mb-1.5">Type</div>
           <form method="POST" action="/issues/{{.Issue.Key}}">

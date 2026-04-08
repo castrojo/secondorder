@@ -2,6 +2,8 @@
 ## Brand Audit + Design Tokens Reference
 _Issue: SO-10 | Date: 2026-03-28_
 
+> Status note for SO-112 on 2026-04-08: this document is stale relative to the later Pico CSS migration. Follow-up ownership is already assigned to Designer under SO-113, so this file is retained as historical direction until that refresh lands.
+
 ---
 
 ## 1. Audit: Current Visual Identity
