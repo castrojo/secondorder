@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -582,14 +583,23 @@ func TestIssueDetail_EmptySections(t *testing.T) {
 	}
 	body := w.Body.String()
 
-	// Verify "Sub-issues" section is NOT present (hidden when empty)
-	if strings.Contains(body, "Sub-issues") {
-		t.Error("body contains 'Sub-issues' header but it should be hidden")
+	// Verify "Sub-issues" section is present even when empty
+	if !strings.Contains(body, "Sub-issues") {
+		t.Error("body does not contain 'Sub-issues' header")
+	}
+	if !strings.Contains(body, "No sub-issues yet") {
+		t.Error("body does not contain 'No sub-issues yet' empty state copy")
+	}
+	if !strings.Contains(body, "Add sub-issue") {
+		t.Error("body does not contain 'Add sub-issue' CTA")
 	}
 
-	// Verify "Runs" section is NOT present (hidden when empty)
-	if strings.Contains(body, "Runs") {
-		t.Error("body contains 'Runs' header but it should be hidden")
+	// Verify "Runs" section is present even when empty
+	if !strings.Contains(body, "Runs") {
+		t.Error("body does not contain 'Runs' header")
+	}
+	if !strings.Contains(body, "No runs recorded") {
+		t.Error("body does not contain 'No runs recorded' empty state copy")
 	}
 }
 
@@ -1475,5 +1485,48 @@ func TestCheckoutIssue_CEOCanCheckoutAssignedToOther(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestCreateSubIssueFromUI_DetailForm(t *testing.T) {
+	d := testDB(t)
+	ui := testUI(t, d)
+
+	parent := &models.Issue{
+		ID:    uuid.New().String(),
+		Key:   "SO-1",
+		Title: "Parent Issue",
+	}
+	d.CreateIssue(parent)
+
+	form := url.Values{}
+	form.Add("title", "New Sub-issue")
+	form.Add("parent_issue_key", "SO-1")
+	form.Add("type", "task")
+	form.Add("priority", "2")
+
+	req := httptest.NewRequest("POST", "/issues", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	ui.ListIssues(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", w.Code)
+	}
+
+	// Verify sub-issue was created with correct parent
+	issues, _ := d.ListIssues("", 100)
+	var found bool
+	for _, i := range issues {
+		if i.Title == "New Sub-issue" {
+			found = true
+			if i.ParentIssueKey == nil || *i.ParentIssueKey != "SO-1" {
+				t.Errorf("expected parent_issue_key SO-1, got %v", i.ParentIssueKey)
+			}
+		}
+	}
+	if !found {
+		t.Error("sub-issue not found in database")
 	}
 }
