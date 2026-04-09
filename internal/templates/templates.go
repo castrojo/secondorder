@@ -62,6 +62,7 @@ func Parse() (*template.Template, error) {
 
 var funcMap = template.FuncMap{
 	"timeAgo":        timeAgo,
+	"iso":            isoTime,
 	"statusColor":    statusColor,
 	"statusIcon":     statusIcon,
 	"statusDot":      statusDot,
@@ -265,6 +266,10 @@ func timeAgo(t time.Time) string {
 		}
 		return fmt.Sprintf("%dd ago", days)
 	}
+}
+
+func isoTime(t time.Time) string {
+	return t.UTC().Format(time.RFC3339)
 }
 
 func completedStages(stages []models.IssueStage) int {
