@@ -231,6 +231,8 @@ func main() {
 	mux.HandleFunc("POST /agents/{slug}", ui.AgentDetail)
 	mux.HandleFunc("POST /agents/{slug}/heartbeat", ui.AgentHeartbeat)
 	mux.HandleFunc("POST /agents/{slug}/assign", ui.AgentAssign)
+	mux.HandleFunc("POST /scheduler/pause", ui.SchedulerPause)
+	mux.HandleFunc("POST /scheduler/resume", ui.SchedulerResume)
 	mux.HandleFunc("GET /work-blocks", ui.ListWorkBlocks)
 	mux.HandleFunc("POST /work-blocks", ui.ListWorkBlocks)
 	mux.HandleFunc("GET /work-blocks/{id}", ui.WorkBlockDetail)

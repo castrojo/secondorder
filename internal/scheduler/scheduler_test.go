@@ -78,6 +78,25 @@ func TestStop(t *testing.T) {
 	}
 }
 
+func TestPauseResumeIsPaused(t *testing.T) {
+	d := testDB(t)
+	s := New(d, 9001)
+
+	if s.IsPaused() {
+		t.Fatal("expected scheduler to start unpaused")
+	}
+
+	s.Pause()
+	if !s.IsPaused() {
+		t.Fatal("expected scheduler to be paused after Pause")
+	}
+
+	s.Resume()
+	if s.IsPaused() {
+		t.Fatal("expected scheduler to be running after Resume")
+	}
+}
+
 func TestProvisionAPIKey(t *testing.T) {
 	d := testDB(t)
 	s := New(d, 9001)
@@ -472,6 +491,32 @@ func TestWakeAgentWhenStopped(t *testing.T) {
 	// Should not panic, just return
 	s.WakeAgent(agent, issue)
 	s.WakeAgentHeartbeat(agent)
+}
+
+func TestWakeAgentWhenPausedSkipsSpawn(t *testing.T) {
+	d := testDB(t)
+	s := New(d, 9001)
+
+	agent := &models.Agent{
+		Name: "Worker", Slug: "worker", ArchetypeSlug: "worker",
+		Runner: "claude_code", Model: "sonnet",
+		WorkingDir: "/tmp", MaxTurns: 50, TimeoutSec: 600, Active: true,
+	}
+	d.CreateAgent(agent)
+
+	issue := &models.Issue{Key: "SO-200", Title: "Paused should skip spawn", Description: "test", Status: "todo"}
+	d.CreateIssue(issue)
+
+	s.Pause()
+	s.WakeAgent(agent, issue)
+
+	runs, err := d.ListRunsForAgent(agent.ID, 10)
+	if err != nil {
+		t.Fatalf("list runs: %v", err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("expected no runs when paused, got %d", len(runs))
+	}
 }
 
 func TestWakeReviewerSelfReviewSkipped(t *testing.T) {
