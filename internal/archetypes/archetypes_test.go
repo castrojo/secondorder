@@ -1,7 +1,6 @@
 package archetypes
 
 import (
-	"os"
 	"testing"
 )
 
@@ -96,10 +95,9 @@ func TestGetScope_CEO(t *testing.T) {
 	}
 }
 
-// TestGetScope_StopsAtNextHeading verifies that GetScope() returns ONLY the tags
-// defined under "## Scope" and stops when it encounters the next "##" heading.
-//
-// Fixture: internal/archetypes/testdata/scope-boundary.md
+// TestGetScope_StopsAtNextHeading verifies that GetScope() stops reading scope
+// tags when it encounters a subsequent ## heading. It uses the dedicated fixture
+// internal/archetypes/testdata/scope-boundary.md which has:
 //
 //	## Scope
 //	foo, bar
@@ -107,30 +105,22 @@ func TestGetScope_CEO(t *testing.T) {
 //	## Other Section
 //	baz, qux
 //
-// Expected: ["foo", "bar"] — NOT ["foo", "bar", "baz", "qux"]
+// GetScope("scope-boundary") must return ["foo", "bar"] — not ["foo", "bar", "baz", "qux"].
 func TestGetScope_StopsAtNextHeading(t *testing.T) {
-	// Point the overrides dir at the testdata directory so GetScope can read
-	// the dedicated scope-boundary.md fixture without embedding it.
+	// Point overrides dir at testdata so GetScope can find scope-boundary.md.
+	// Restore original overrides dir after test.
 	orig := GetOverridesDir()
 	SetOverridesDir("testdata")
-	t.Cleanup(func() {
-		SetOverridesDir(orig)
-	})
-
-	// Verify the fixture file exists so a missing file gives a clear failure.
-	if _, err := os.Stat("testdata/scope-boundary.md"); err != nil {
-		t.Fatalf("fixture file testdata/scope-boundary.md not found: %v", err)
-	}
+	defer SetOverridesDir(orig)
 
 	scope, err := GetScope("scope-boundary")
 	if err != nil {
 		t.Fatalf("GetScope(scope-boundary) unexpected error: %v", err)
 	}
 
-	// AC3: must return ONLY the tags before the next ## heading.
 	expected := []string{"foo", "bar"}
 	if len(scope) != len(expected) {
-		t.Fatalf("GetScope(scope-boundary) = %v (len %d); want %v (len %d) — parser may have leaked tags from the '## Other Section' boundary",
+		t.Fatalf("GetScope(scope-boundary) = %v (len %d); want %v (len %d) — parser may have bled past ## Other Section",
 			scope, len(scope), expected, len(expected))
 	}
 	for i, tag := range expected {
@@ -139,14 +129,11 @@ func TestGetScope_StopsAtNextHeading(t *testing.T) {
 		}
 	}
 
-	// Explicit negative assertion: "baz" and "qux" appear ONLY after "## Other Section"
-	// and must NOT be present in the returned tags.
-	forbidden := []string{"baz", "qux"}
+	// Explicitly verify that tags from the subsequent ## Other Section are absent.
+	forbidden := map[string]bool{"baz": true, "qux": true}
 	for _, tag := range scope {
-		for _, f := range forbidden {
-			if tag == f {
-				t.Errorf("GetScope(scope-boundary) returned %q which is from the post-boundary '## Other Section'; parser did not stop at ##", tag)
-			}
+		if forbidden[tag] {
+			t.Errorf("GetScope(scope-boundary) returned %q which is from ## Other Section — boundary stop failed", tag)
 		}
 	}
 }
