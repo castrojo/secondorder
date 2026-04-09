@@ -404,3 +404,17 @@ type SupermemoryDailyStat struct {
 	Stores  int    `json:"stores"`
 	Recalls int    `json:"recalls"`
 }
+
+// StalledIssue pairs an in-progress Issue with how long it has been idle
+// (i.e. no new comments added).
+type StalledIssue struct {
+	Issue        Issue         `json:"issue"`
+	IdleDuration time.Duration `json:"idle_duration"`
+	// LastCommentAt is nil when the issue has never received a comment.
+	LastCommentAt *time.Time `json:"last_comment_at"`
+}
+
+// IdleHours returns the idle duration rounded to the nearest tenth of an hour.
+func (s *StalledIssue) IdleHours() float64 {
+	return s.IdleDuration.Hours()
+}

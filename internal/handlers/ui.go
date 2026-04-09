@@ -69,6 +69,16 @@ func (u *UI) Dashboard(w http.ResponseWriter, r *http.Request) {
 	supermemoryStats, _ := u.db.GetSupermemoryStats()
 	supermemoryTrend, _ := u.db.GetSupermemoryTrend(7)
 
+	// Stall detection (SO-87): default threshold 4h; honours stall_threshold_hours setting.
+	stallThreshold := 4 * time.Hour
+	if val, err := u.db.GetSetting("stall_threshold_hours"); err == nil {
+		var h float64
+		if _, err2 := fmt.Sscanf(val, "%f", &h); err2 == nil && h > 0 {
+			stallThreshold = time.Duration(h * float64(time.Hour))
+		}
+	}
+	stalledIssues, _ := u.db.GetStalledIssues(stallThreshold)
+
 	data := map[string]any{
 		"Stats":            stats,
 		"Issues":           issues,
@@ -78,6 +88,8 @@ func (u *UI) Dashboard(w http.ResponseWriter, r *http.Request) {
 		"IsPaused":         u.IsPaused(),
 		"SupermemoryStats": supermemoryStats,
 		"SupermemoryTrend": supermemoryTrend,
+		"StalledIssues":    stalledIssues,
+		"StallThresholdH":  stallThreshold.Hours(),
 	}
 
 	if activeBlock, err := u.db.GetActiveWorkBlock(); err == nil {
