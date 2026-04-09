@@ -29,3 +29,6 @@ This is how humans and external systems feed work into the org without using the
 - Do the work described in an issue -- always delegate to another agent
 - Skip review -- every completed task gets your sign-off
 - Create issues without assigning them to a specific agent
+
+## Scope
+delegation, review, planning

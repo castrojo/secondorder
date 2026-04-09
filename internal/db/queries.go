@@ -1627,3 +1627,134 @@ func (d *DB) ChildrenWithCompletionComments(parentKey string) ([]ChildCompletion
 	}
 	return results, nil
 }
+
+// --- Stall Detection ---
+
+// GetStalledIssues returns issues that are currently in_progress but have had
+// no new comments for at least `threshold` duration.  The "last activity"
+// timestamp is the MAX of (issue.updated_at, latest comment.created_at).
+// When an issue has never received a comment, issue.updated_at alone is used.
+//
+// Results are ordered by idle time descending (oldest activity first).
+func (d *DB) GetStalledIssues(threshold time.Duration) ([]models.StalledIssue, error) {
+	// Compute the cutoff timestamp in UTC.
+	cutoff := time.Now().UTC().Add(-threshold)
+	cutoffStr := cutoff.Format("2006-01-02 15:04:05")
+
+	query := fmt.Sprintf(`
+		SELECT
+			%s,
+			MAX(
+				i.updated_at,
+				COALESCE(
+					(SELECT MAX(c.created_at) FROM comments c WHERE c.issue_key = i.key),
+					i.updated_at
+				)
+			) AS last_activity
+		FROM issues i
+		LEFT JOIN agents a ON i.assignee_agent_id = a.id
+		WHERE i.status = 'in_progress'
+		  AND MAX(
+			    i.updated_at,
+			    COALESCE(
+				    (SELECT MAX(c.created_at) FROM comments c WHERE c.issue_key = i.key),
+				    i.updated_at
+			    )
+		      ) < ?
+		ORDER BY last_activity ASC
+	`, issueCols)
+
+	rows, err := d.Query(query, cutoffStr)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	now := time.Now().UTC()
+	var results []models.StalledIssue
+	for rows.Next() {
+		i, lastActivityStr, err := scanIssueWithExtra(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		// Parse last_activity string returned from SQLite.
+		var lastActivity time.Time
+		for _, layout := range []string{
+			"2006-01-02 15:04:05.999999999-07:00",
+			"2006-01-02T15:04:05.999999999Z07:00",
+			"2006-01-02 15:04:05.999999999",
+			"2006-01-02 15:04:05",
+			"2006-01-02T15:04:05Z",
+		} {
+			if t, err2 := time.Parse(layout, lastActivityStr); err2 == nil {
+				lastActivity = t.UTC()
+				break
+			}
+		}
+
+		idle := now.Sub(lastActivity)
+
+		// Determine whether last activity was a comment or the issue itself.
+		si := models.StalledIssue{
+			Issue:        *i,
+			IdleDuration: idle,
+		}
+
+		// Query the actual last comment time separately (for display/notification).
+		var lastCommentStr sql.NullString
+		_ = d.QueryRow(`SELECT MAX(created_at) FROM comments WHERE issue_key=?`, i.Key).Scan(&lastCommentStr)
+		if lastCommentStr.Valid && lastCommentStr.String != "" {
+			for _, layout := range []string{
+				"2006-01-02 15:04:05.999999999-07:00",
+				"2006-01-02T15:04:05.999999999Z07:00",
+				"2006-01-02 15:04:05.999999999",
+				"2006-01-02 15:04:05",
+				"2006-01-02T15:04:05Z",
+			} {
+				if t, err2 := time.Parse(layout, lastCommentStr.String); err2 == nil {
+					tc := t.UTC()
+					si.LastCommentAt = &tc
+					break
+				}
+			}
+		}
+
+		results = append(results, si)
+	}
+	return results, rows.Err()
+}
+
+// scanIssueWithExtra scans a row that has all issueCols columns PLUS one
+// extra trailing string column (last_activity).
+func scanIssueWithExtra(rows *sql.Rows) (*models.Issue, string, error) {
+	i := &models.Issue{}
+	var stagesJSON string
+	var startedAt, completedAt NullDBTime
+	var createdAt, updatedAt DBTime
+	var extra string
+	err := rows.Scan(
+		&i.ID, &i.Key, &i.Title, &i.Description, &i.Status, &i.Type, &i.Priority, &i.AssigneeAgentID,
+		&i.ParentIssueKey, &i.WorkBlockID, &startedAt, &completedAt, &createdAt, &updatedAt,
+		&i.AssigneeName, &i.AssigneeSlug, &stagesJSON, &i.CurrentStageID,
+		&extra,
+	)
+	if err != nil {
+		return nil, "", err
+	}
+	if startedAt.Valid {
+		i.StartedAt = &startedAt.Time
+	}
+	if completedAt.Valid {
+		i.CompletedAt = &completedAt.Time
+	}
+	i.CreatedAt = createdAt.Time
+	i.UpdatedAt = updatedAt.Time
+	if stagesJSON != "" {
+		json.Unmarshal([]byte(stagesJSON), &i.Stages)
+	}
+	if i.Stages == nil {
+		i.Stages = []models.IssueStage{}
+	}
+	return i, extra, nil
+}

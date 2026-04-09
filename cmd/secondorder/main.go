@@ -309,6 +309,22 @@ func main() {
 	// Heartbeat loop
 	sched.StartHeartbeatLoop(1 * time.Hour)
 
+	// Session-scoped API key expiry loop (SO-80): sweep every 60s, evict keys past expires_at
+	sched.StartAPIKeyExpiryLoop(60 * time.Second)
+
+	// Stall detection loop (SO-87): flag in_progress issues with no activity for >= threshold.
+	// Threshold is configurable via settings key "stall_threshold_hours" (default 4h = 2 sessions).
+	{
+		thresholdHours := 4.0
+		if val, err := database.GetSetting("stall_threshold_hours"); err == nil {
+			var h float64
+			if _, err2 := fmt.Sscanf(val, "%f", &h); err2 == nil && h > 0 {
+				thresholdHours = h
+			}
+		}
+		sched.StartStallDetectionLoop(30*time.Minute, time.Duration(thresholdHours*float64(time.Hour)))
+	}
+
 	// HTTP server
 	srv := &http.Server{
 		Addr:         ":" + port,
