@@ -1,6 +1,7 @@
 package archetypes
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -91,6 +92,29 @@ func TestGetScope_CEO(t *testing.T) {
 	for i, tag := range expected {
 		if scope[i] != tag {
 			t.Errorf("GetScope(ceo)[%d] = %q; want %q", i, scope[i], tag)
+		}
+	}
+}
+
+func TestGetScope_StopsAtNextHeading(t *testing.T) {
+	// principle-engineer.md has "## Scope clarification" before "## Scope"
+	// GetScope() must return only the tags under "## Scope", not content
+	// from any other section.
+	scope, err := GetScope("principle-engineer")
+	if err != nil {
+		t.Fatalf("GetScope(principle-engineer) unexpected error: %v", err)
+	}
+	// Must contain at least one real scope tag
+	if len(scope) == 0 {
+		t.Fatal("GetScope(principle-engineer) returned empty scope; want real tags")
+	}
+	// Must NOT contain content from other sections (e.g. heading text itself)
+	for _, tag := range scope {
+		if strings.Contains(tag, "##") {
+			t.Errorf("GetScope() leaked heading text into tags: %q", tag)
+		}
+		if strings.Contains(tag, "clarification") {
+			t.Errorf("GetScope() leaked content from ## Scope clarification section: %q", tag)
 		}
 	}
 }
