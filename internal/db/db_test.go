@@ -1848,3 +1848,101 @@ func TestExpireStaleAPIKeys(t *testing.T) {
 		t.Errorf("live key agent mismatch: want %s, got %s", agent.ID, gotLive.ID)
 	}
 }
+
+// --- CleanupStaleRuns ---
+
+func TestCleanupStaleRunsAllRunning(t *testing.T) {
+	d := testDB(t)
+	a := makeAgent("cleanup-agent")
+	d.CreateAgent(a)
+
+	// Two running, one completed — cutoff=0 should catch all running
+	r1 := &models.Run{AgentID: a.ID, Mode: "task", Status: models.RunStatusRunning}
+	r2 := &models.Run{AgentID: a.ID, Mode: "task", Status: models.RunStatusRunning}
+	r3 := &models.Run{AgentID: a.ID, Mode: "task", Status: models.RunStatusCompleted}
+	d.CreateRun(r1)
+	d.CreateRun(r2)
+	d.CreateRun(r3)
+
+	ids, err := d.CleanupStaleRuns(0)
+	if err != nil {
+		t.Fatalf("CleanupStaleRuns: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Errorf("expected 2 cleaned run IDs, got %d: %v", len(ids), ids)
+	}
+
+	// Both running runs must now be failed
+	count, _ := d.CountRunningRuns()
+	if count != 0 {
+		t.Errorf("expected 0 running runs after cleanup, got %d", count)
+	}
+}
+
+func TestCleanupStaleRunsCutoffFiltersRecent(t *testing.T) {
+	d := testDB(t)
+	a := makeAgent("cutoff-agent")
+	d.CreateAgent(a)
+
+	// Create two runs, then back-date one to be "old"
+	rOld := &models.Run{AgentID: a.ID, Mode: "task", Status: models.RunStatusRunning}
+	rNew := &models.Run{AgentID: a.ID, Mode: "task", Status: models.RunStatusRunning}
+	d.CreateRun(rOld)
+	d.CreateRun(rNew)
+
+	// Back-date rOld to 30 minutes ago so it falls beyond a 10-minute cutoff
+	_, err := d.Exec(`UPDATE runs SET started_at=datetime('now', '-30 minutes') WHERE id=?`, rOld.ID)
+	if err != nil {
+		t.Fatalf("back-date run: %v", err)
+	}
+
+	// rNew was just created (seconds ago), so a 10-minute cutoff should skip it
+	ids, err := d.CleanupStaleRuns(10 * time.Minute)
+	if err != nil {
+		t.Fatalf("CleanupStaleRuns: %v", err)
+	}
+	if len(ids) != 1 {
+		t.Errorf("expected 1 cleaned run ID (the old one), got %d: %v", len(ids), ids)
+	}
+	if ids[0] != rOld.ID {
+		t.Errorf("expected old run %s to be cleaned, got %s", rOld.ID, ids[0])
+	}
+
+	// rNew must still be running
+	got, _ := d.GetRun(rNew.ID)
+	if got.Status != models.RunStatusRunning {
+		t.Errorf("recent run status = %q, want running", got.Status)
+	}
+}
+
+func TestCleanupStaleRunsNoneRunning(t *testing.T) {
+	d := testDB(t)
+	a := makeAgent("none-running-agent")
+	d.CreateAgent(a)
+	d.CreateRun(&models.Run{AgentID: a.ID, Mode: "task", Status: models.RunStatusCompleted})
+
+	ids, err := d.CleanupStaleRuns(10 * time.Minute)
+	if err != nil {
+		t.Fatalf("CleanupStaleRuns with no running: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Errorf("expected 0 IDs with no running runs, got %d", len(ids))
+	}
+}
+
+func TestMarkStaleRunsFailedBackwardCompat(t *testing.T) {
+	d := testDB(t)
+	a := makeAgent("compat-agent")
+	d.CreateAgent(a)
+
+	d.CreateRun(&models.Run{AgentID: a.ID, Mode: "task", Status: models.RunStatusRunning})
+	d.CreateRun(&models.Run{AgentID: a.ID, Mode: "task", Status: models.RunStatusCompleted})
+
+	affected, err := d.MarkStaleRunsFailed()
+	if err != nil {
+		t.Fatalf("MarkStaleRunsFailed: %v", err)
+	}
+	if affected != 1 {
+		t.Errorf("expected 1 affected, got %d", affected)
+	}
+}

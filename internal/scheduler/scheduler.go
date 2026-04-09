@@ -955,14 +955,26 @@ BASE_URL: http://localhost:%d
 	return buf.String()
 }
 
+// staleCutoff is the minimum age of a "running" run before it is considered
+// orphaned on startup. Runs younger than this may belong to a concurrent
+// process and should not be disturbed.
+const staleCutoff = 10 * time.Minute
+
 // RecoverStuckIssues finds issues stuck in in_progress/todo after a restart and re-wakes their agents.
 func (s *Scheduler) RecoverStuckIssues() int {
-	// Mark any stale "running" runs as failed since the process restarted
-	staleCount, err := s.db.MarkStaleRunsFailed()
+	// Mark stale "running" runs as failed — only those older than staleCutoff,
+	// so genuinely in-flight runs from a concurrent process are left alone.
+	// Fail-safe: any run that cannot possibly still be active is terminated.
+	staleIDs, err := s.db.CleanupStaleRuns(staleCutoff)
 	if err != nil {
 		slog.Error("scheduler: failed to mark stale runs", "error", err)
-	} else if staleCount > 0 {
-		slog.Info("scheduler: marked stale runs as failed", "count", staleCount)
+	}
+	for _, id := range staleIDs {
+		slog.Info("scheduler: cleaned up stale run", "run_id", id)
+	}
+	staleCount := int64(len(staleIDs))
+	if staleCount > 0 {
+		slog.Info("scheduler: stale run cleanup complete", "count", staleCount)
 	}
 
 	issues, err := s.db.GetStuckIssues()

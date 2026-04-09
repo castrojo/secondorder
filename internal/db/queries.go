@@ -507,12 +507,63 @@ func (d *DB) GetStuckIssues() ([]models.Issue, error) {
 }
 
 // MarkStaleRunsFailed marks any runs still in "running" status as failed (for crash recovery).
+// Deprecated: prefer CleanupStaleRuns which accepts a cutoff duration and returns individual run IDs.
 func (d *DB) MarkStaleRunsFailed() (int64, error) {
-	res, err := d.Exec(`UPDATE runs SET status='failed', completed_at=datetime('now') WHERE status='running'`)
-	if err != nil {
-		return 0, err
+	ids, err := d.CleanupStaleRuns(0)
+	return int64(len(ids)), err
+}
+
+// CleanupStaleRuns marks runs that are still in "running" status and were started before
+// (now - cutoff) as failed. A cutoff of 0 matches all running runs regardless of age.
+// Returns the IDs of every run that was transitioned, so callers can log per-run.
+func (d *DB) CleanupStaleRuns(cutoff time.Duration) ([]string, error) {
+	// First collect the IDs we are about to fail so callers can log them individually.
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if cutoff > 0 {
+		threshold := time.Now().UTC().Add(-cutoff).Format("2006-01-02 15:04:05")
+		rows, err = d.Query(
+			`SELECT id FROM runs WHERE status='running' AND started_at < ?`, threshold)
+	} else {
+		rows, err = d.Query(`SELECT id FROM runs WHERE status='running'`)
 	}
-	return res.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	// Build a parameterised IN clause and update in one statement.
+	placeholders := strings.Repeat("?,", len(ids))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	_, err = d.Exec(
+		`UPDATE runs SET status='failed', completed_at=datetime('now') WHERE id IN (`+placeholders+`)`,
+		args...)
+	if err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 func scanRuns(rows *sql.Rows) ([]models.Run, error) {
