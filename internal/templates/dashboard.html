@@ -97,6 +97,32 @@
     </a>
     {{end}}
 
+    <!-- Stalled Issues (SO-87) -->
+    {{if .StalledIssues}}
+    <div id="stalled-issues-panel" class="mb-6"
+         hx-get="/dashboard" hx-select="#stalled-issues-panel" hx-target="#stalled-issues-panel" hx-swap="outerHTML"
+         hx-trigger="run-complete from:body,issue-changed from:body">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <h2 class="text-[13px] font-medium text-amber-400">Stalled Issues</h2>
+          <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">{{len .StalledIssues}}</span>
+        </div>
+        <span class="text-xs text-ink3/50">No activity for &gt;{{printf "%.0f" .StallThresholdH}}h</span>
+      </div>
+      <div class="bg-card border border-amber-500/30 rounded-lg divide-y divide-sf overflow-hidden">
+        {{range .StalledIssues}}
+        <a href="/issues/{{.Issue.Key}}" class="flex items-center gap-3 px-4 py-2.5 hover:bg-sf transition-all group">
+          <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 bg-amber-500/20 text-amber-400">⏸ STALLED</span>
+          <span class="font-mono text-xs text-ink3/50 w-14 shrink-0">{{.Issue.Key}}</span>
+          <span class="text-[13px] text-ink flex-1 truncate group-hover:text-ink" title="{{.Issue.Title}}">{{.Issue.Title}}</span>
+          {{if .Issue.AssigneeName}}<span class="text-[11px] text-ink3/50 shrink-0">{{.Issue.AssigneeName}}</span>{{end}}
+          <span class="text-[11px] text-amber-400 shrink-0 tabular-nums font-mono">{{printf "%.1f" .IdleDuration.Hours}}h idle</span>
+        </a>
+        {{end}}
+      </div>
+    </div>
+    {{end}}
+
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <!-- Recent Issues -->
       <div class="lg:col-span-2">

@@ -1285,7 +1285,7 @@ func TestSettings(t *testing.T) {
 		if err != nil {
 			t.Fatalf("get all settings: %v", err)
 		}
-		expected := []string{"issue_prefix", "telegram_token", "telegram_chat_id", "github_url", "instance_name"}
+		expected := []string{"issue_prefix", "telegram_token", "telegram_chat_id", "github_url", "instance_name", "stall_threshold_hours"}
 		for _, k := range expected {
 			if _, ok := all[k]; !ok {
 				t.Errorf("missing expected key %q", k)
@@ -1666,5 +1666,196 @@ func TestActivityTimeline48hFields(t *testing.T) {
 	}
 	if e.Count != 1 {
 		t.Errorf("Count = %d, want 1", e.Count)
+	}
+}
+
+// --- Stall Detection ---
+
+func TestGetStalledIssuesNoneInProgress(t *testing.T) {
+	d := testDB(t)
+	// No issues at all → empty result
+	stalled, err := d.GetStalledIssues(4 * time.Hour)
+	if err != nil {
+		t.Fatalf("GetStalledIssues: %v", err)
+	}
+	if len(stalled) != 0 {
+		t.Fatalf("expected 0 stalled issues, got %d", len(stalled))
+	}
+}
+
+func TestGetStalledIssuesActiveIssueTooRecent(t *testing.T) {
+	d := testDB(t)
+
+	// Create an issue that was updated just now (not stalled)
+	key, _ := d.NextIssueKey()
+	issue := &models.Issue{
+		Key:    key,
+		Title:  "Recent in-progress issue",
+		Status: models.StatusInProgress,
+	}
+	if err := d.CreateIssue(issue); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+
+	stalled, err := d.GetStalledIssues(4 * time.Hour)
+	if err != nil {
+		t.Fatalf("GetStalledIssues: %v", err)
+	}
+	if len(stalled) != 0 {
+		t.Fatalf("expected 0 stalled issues (issue is too recent), got %d", len(stalled))
+	}
+}
+
+func TestGetStalledIssuesStaleInProgress(t *testing.T) {
+	d := testDB(t)
+
+	// Create an issue and backdate updated_at to 6 hours ago.
+	key, _ := d.NextIssueKey()
+	issue := &models.Issue{
+		Key:    key,
+		Title:  "Old in-progress issue",
+		Status: models.StatusInProgress,
+	}
+	if err := d.CreateIssue(issue); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+	sixHoursAgo := time.Now().UTC().Add(-6 * time.Hour).Format("2006-01-02 15:04:05")
+	if _, err := d.Exec(`UPDATE issues SET updated_at=? WHERE key=?`, sixHoursAgo, key); err != nil {
+		t.Fatalf("backdate updated_at: %v", err)
+	}
+
+	stalled, err := d.GetStalledIssues(4 * time.Hour)
+	if err != nil {
+		t.Fatalf("GetStalledIssues: %v", err)
+	}
+	if len(stalled) != 1 {
+		t.Fatalf("expected 1 stalled issue, got %d", len(stalled))
+	}
+	if stalled[0].Issue.Key != key {
+		t.Errorf("stalled issue key = %q, want %q", stalled[0].Issue.Key, key)
+	}
+	if stalled[0].IdleDuration < 5*time.Hour {
+		t.Errorf("expected idle duration >= 5h, got %v", stalled[0].IdleDuration)
+	}
+}
+
+func TestGetStalledIssuesRecentCommentPreventsStall(t *testing.T) {
+	d := testDB(t)
+
+	// Create an issue backdated to 6h ago.
+	key, _ := d.NextIssueKey()
+	issue := &models.Issue{
+		Key:    key,
+		Title:  "Issue with recent comment",
+		Status: models.StatusInProgress,
+	}
+	if err := d.CreateIssue(issue); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+	sixHoursAgo := time.Now().UTC().Add(-6 * time.Hour).Format("2006-01-02 15:04:05")
+	if _, err := d.Exec(`UPDATE issues SET updated_at=? WHERE key=?`, sixHoursAgo, key); err != nil {
+		t.Fatalf("backdate updated_at: %v", err)
+	}
+
+	// Add a comment 1 hour ago (within threshold) — should not be stalled.
+	oneHourAgo := time.Now().UTC().Add(-1 * time.Hour).Format("2006-01-02 15:04:05")
+	if _, err := d.Exec(
+		`INSERT INTO comments (id, issue_key, author, body, created_at) VALUES (?, ?, ?, ?, ?)`,
+		"test-comment-id", key, "Agent", "progress update", oneHourAgo,
+	); err != nil {
+		t.Fatalf("insert comment: %v", err)
+	}
+
+	stalled, err := d.GetStalledIssues(4 * time.Hour)
+	if err != nil {
+		t.Fatalf("GetStalledIssues: %v", err)
+	}
+	if len(stalled) != 0 {
+		t.Fatalf("expected 0 stalled (comment is recent), got %d", len(stalled))
+	}
+}
+
+func TestGetStalledIssuesOldCommentCountsAsStalled(t *testing.T) {
+	d := testDB(t)
+
+	// Create issue backdated.
+	key, _ := d.NextIssueKey()
+	issue := &models.Issue{
+		Key:    key,
+		Title:  "Issue with old comment",
+		Status: models.StatusInProgress,
+	}
+	if err := d.CreateIssue(issue); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+	eightHoursAgo := time.Now().UTC().Add(-8 * time.Hour).Format("2006-01-02 15:04:05")
+	if _, err := d.Exec(`UPDATE issues SET updated_at=? WHERE key=?`, eightHoursAgo, key); err != nil {
+		t.Fatalf("backdate updated_at: %v", err)
+	}
+
+	// Add a comment from 5h ago (older than 4h threshold) — still stalled.
+	fiveHoursAgo := time.Now().UTC().Add(-5 * time.Hour).Format("2006-01-02 15:04:05")
+	if _, err := d.Exec(
+		`INSERT INTO comments (id, issue_key, author, body, created_at) VALUES (?, ?, ?, ?, ?)`,
+		"old-comment-id", key, "Agent", "started work", fiveHoursAgo,
+	); err != nil {
+		t.Fatalf("insert comment: %v", err)
+	}
+
+	stalled, err := d.GetStalledIssues(4 * time.Hour)
+	if err != nil {
+		t.Fatalf("GetStalledIssues: %v", err)
+	}
+	if len(stalled) != 1 {
+		t.Fatalf("expected 1 stalled issue (comment is old), got %d", len(stalled))
+	}
+	if stalled[0].LastCommentAt == nil {
+		t.Error("expected LastCommentAt to be set")
+	}
+}
+
+func TestGetStalledIssuesNonInProgressIgnored(t *testing.T) {
+	d := testDB(t)
+
+	// Create issues in various terminal statuses and backdate them.
+	statuses := []string{models.StatusDone, models.StatusTodo, models.StatusCancelled, models.StatusBlocked}
+	for _, status := range statuses {
+		key, _ := d.NextIssueKey()
+		issue := &models.Issue{Key: key, Title: "Issue " + status, Status: status}
+		if err := d.CreateIssue(issue); err != nil {
+			t.Fatalf("CreateIssue(%s): %v", status, err)
+		}
+		ago := time.Now().UTC().Add(-8 * time.Hour).Format("2006-01-02 15:04:05")
+		d.Exec(`UPDATE issues SET updated_at=? WHERE key=?`, ago, key)
+	}
+
+	stalled, err := d.GetStalledIssues(4 * time.Hour)
+	if err != nil {
+		t.Fatalf("GetStalledIssues: %v", err)
+	}
+	if len(stalled) != 0 {
+		t.Fatalf("expected 0 stalled (no in_progress issues), got %d", len(stalled))
+	}
+}
+
+func TestGetStalledIssuesStallThresholdSetting(t *testing.T) {
+	d := testDB(t)
+
+	// Verify the stall_threshold_hours setting is seeded correctly.
+	val, err := d.GetSetting("stall_threshold_hours")
+	if err != nil {
+		t.Fatalf("GetSetting(stall_threshold_hours): %v", err)
+	}
+	if val != "4" {
+		t.Errorf("stall_threshold_hours = %q, want %q", val, "4")
+	}
+
+	// Verify it can be overridden.
+	if err := d.SetSetting("stall_threshold_hours", "8"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+	val, _ = d.GetSetting("stall_threshold_hours")
+	if val != "8" {
+		t.Errorf("stall_threshold_hours after update = %q, want %q", val, "8")
 	}
 }

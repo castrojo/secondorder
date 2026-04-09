@@ -1055,8 +1055,10 @@ const workerRules = `RULES:
 - If you have a question or need clarification, post it as a comment on the ticket and mark the issue "blocked".
 - Always checkout the issue first, then do the work, then update status.
 - Write any documentation to the artifact-docs/ folder.
-- When your work is ready for review: create a PR (gh pr create --fill), then mark the issue "done" with the PR URL in your comment.
-- Do NOT merge PRs yourself. The QA agent will run gates and merge when approved.`
+- NEVER push code, open PRs, or merge into upstream repos. Only castrojo/* repos are allowed.
+- When your work is ready for review: create or update a PR in castrojo/*, then mark the issue "in_review" with the PR URL in your comment.
+- Stay with the issue through review. Address review feedback on the same PR.
+- Mark an issue "done" only after the castrojo/* PR has merged, and include the merged PR URL plus commit SHA in your comment.`
 
 const workerAPIRef = `SO API (Authorization: Bearer $SECONDORDER_API_KEY):
   GET    $SECONDORDER_API_URL/api/v1/inbox                              - your assigned issues
@@ -1270,4 +1272,98 @@ func (s *Scheduler) StartAPIKeyExpiryLoop(interval time.Duration) {
 			}
 		}
 	}()
+}
+
+// StartStallDetectionLoop runs stall detection on a periodic timer.
+// interval: how often to check (e.g. 30 min).
+// threshold: how long with no activity before an issue is considered stalled.
+// The loop stops when the scheduler is stopped.
+//
+// On each tick it calls GetStalledIssues and, for each newly-detected stall,
+// posts a comment to the CEO agent inbox (AC2) and logs at WARN level (AC1).
+//
+// Already-notified stalls are deduplicated via an in-memory set so the CEO
+// only receives one notification per stall event (cleared when the loop stops).
+func (s *Scheduler) StartStallDetectionLoop(interval, threshold time.Duration) {
+	go func() {
+		// Track issues we've already notified this process lifetime to avoid spam.
+		notified := make(map[string]bool)
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				s.mu.Lock()
+				if s.stopped {
+					s.mu.Unlock()
+					return
+				}
+				s.mu.Unlock()
+
+				s.runStallDetection(threshold, notified)
+			}
+		}
+	}()
+}
+
+func (s *Scheduler) runStallDetection(threshold time.Duration, notified map[string]bool) {
+	stalled, err := s.db.GetStalledIssues(threshold)
+	if err != nil {
+		slog.Error("stall-detector: failed to query stalled issues", "error", err)
+		return
+	}
+
+	if len(stalled) == 0 {
+		return
+	}
+
+	// Find the CEO agent once per sweep.
+	ceo, _ := s.db.GetCEOAgent()
+
+	for _, si := range stalled {
+		key := si.Issue.Key
+		if notified[key] {
+			continue
+		}
+
+		idleHours := si.IdleDuration.Hours()
+		thresholdHours := threshold.Hours()
+
+		slog.Warn("stall-detector: issue stalled",
+			"issue", key,
+			"title", si.Issue.Title,
+			"assignee", si.Issue.AssigneeName,
+			"idle_hours", fmt.Sprintf("%.1f", idleHours),
+			"threshold_hours", fmt.Sprintf("%.1f", thresholdHours),
+		)
+
+		// AC2: post a CEO inbox notification comment.
+		if ceo != nil {
+			body := fmt.Sprintf(
+				"⚠️ **Stall detected** on [%s]: *%s*\n\n"+
+					"- Assignee: %s\n"+
+					"- Idle for: %.1f hours (threshold: %.1f h)\n"+
+					"- Status: %s\n\n"+
+					"Please investigate and escalate if needed.",
+				key, si.Issue.Title,
+				si.Issue.AssigneeName,
+				idleHours, thresholdHours,
+				si.Issue.Status,
+			)
+			_ = s.db.CreateComment(&models.Comment{
+				IssueKey: key,
+				AgentID:  &ceo.ID,
+				Author:   "Stall Detector",
+				Body:     body,
+			})
+		}
+
+		notified[key] = true
+	}
+
+	slog.Info("stall-detector: sweep complete",
+		"stalled_count", len(stalled),
+		"threshold_hours", fmt.Sprintf("%.1f", threshold.Hours()),
+	)
 }
