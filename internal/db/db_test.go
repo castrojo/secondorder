@@ -1859,3 +1859,47 @@ func TestGetStalledIssuesStallThresholdSetting(t *testing.T) {
 		t.Errorf("stall_threshold_hours after update = %q, want %q", val, "8")
 	}
 }
+
+// TestGetStalledIssuesRecentUpdateAfterOldComment is a regression test for the
+// COALESCE vs MAX bug. An issue that was updated recently should NOT be stalled,
+// even if it has an old comment. The last-activity timestamp must be
+// MAX(updated_at, latest-comment.created_at), not COALESCE(latest-comment, updated_at).
+func TestGetStalledIssuesRecentUpdateAfterOldComment(t *testing.T) {
+	d := testDB(t)
+
+	// Create an in_progress issue.
+	key, _ := d.NextIssueKey()
+	issue := &models.Issue{
+		Key:    key,
+		Title:  "Issue updated recently after old comment",
+		Status: models.StatusInProgress,
+	}
+	if err := d.CreateIssue(issue); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+
+	// Backdate the issue's updated_at to 1 hour ago (within 4h threshold → not stalled).
+	oneHourAgo := time.Now().UTC().Add(-1 * time.Hour).Format("2006-01-02 15:04:05")
+	if _, err := d.Exec(`UPDATE issues SET updated_at=? WHERE key=?`, oneHourAgo, key); err != nil {
+		t.Fatalf("backdate updated_at: %v", err)
+	}
+
+	// Insert a comment from 8 hours ago (older than 4h threshold).
+	// With the old COALESCE bug, the comment timestamp wins and the issue appears stalled.
+	// With the correct MAX semantics, updated_at (1h ago) wins and the issue is NOT stalled.
+	eightHoursAgo := time.Now().UTC().Add(-8 * time.Hour).Format("2006-01-02 15:04:05")
+	if _, err := d.Exec(
+		`INSERT INTO comments (id, issue_key, author, body, created_at) VALUES (?, ?, ?, ?, ?)`,
+		"regression-comment-id", key, "Agent", "old comment", eightHoursAgo,
+	); err != nil {
+		t.Fatalf("insert old comment: %v", err)
+	}
+
+	stalled, err := d.GetStalledIssues(4 * time.Hour)
+	if err != nil {
+		t.Fatalf("GetStalledIssues: %v", err)
+	}
+	if len(stalled) != 0 {
+		t.Fatalf("expected 0 stalled issues (issue was updated 1h ago — not stalled), got %d", len(stalled))
+	}
+}

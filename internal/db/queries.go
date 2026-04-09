@@ -1644,16 +1644,22 @@ func (d *DB) GetStalledIssues(threshold time.Duration) ([]models.StalledIssue, e
 	query := fmt.Sprintf(`
 		SELECT
 			%s,
-			COALESCE(
-				(SELECT MAX(c.created_at) FROM comments c WHERE c.issue_key = i.key),
-				i.updated_at
+			MAX(
+				i.updated_at,
+				COALESCE(
+					(SELECT MAX(c.created_at) FROM comments c WHERE c.issue_key = i.key),
+					i.updated_at
+				)
 			) AS last_activity
 		FROM issues i
 		LEFT JOIN agents a ON i.assignee_agent_id = a.id
 		WHERE i.status = 'in_progress'
-		  AND COALESCE(
-			    (SELECT MAX(c.created_at) FROM comments c WHERE c.issue_key = i.key),
-			    i.updated_at
+		  AND MAX(
+			    i.updated_at,
+			    COALESCE(
+				    (SELECT MAX(c.created_at) FROM comments c WHERE c.issue_key = i.key),
+				    i.updated_at
+			    )
 		      ) < ?
 		ORDER BY last_activity ASC
 	`, issueCols)
