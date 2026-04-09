@@ -96,3 +96,58 @@ func WriteToTemp(slug string) (string, func(), error) {
 	cleanup := func() { os.Remove(tmpFile.Name()) }
 	return tmpFile.Name(), cleanup, nil
 }
+
+// GetScope parses the "## Scope" section from an archetype's .md file and returns
+// the list of scope tags. Tags are comma-separated on the line(s) following the
+// "## Scope" heading.
+//
+// Returns an empty slice (not an error) when:
+//   - The archetype file does not exist
+//   - The file exists but contains no "## Scope" section
+//
+// This ensures backward compatibility with archetypes that predate scope metadata.
+func GetScope(slug string) ([]string, error) {
+	data, err := Read(slug)
+	if err != nil {
+		// Archetype not found — return empty slice, no error (backward-compatible)
+		return []string{}, nil
+	}
+
+	lines := strings.Split(string(data), "\n")
+	inScope := false
+	var tags []string
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if trimmed == "## Scope" {
+			inScope = true
+			continue
+		}
+
+		if inScope {
+			// Stop at the next heading
+			if strings.HasPrefix(trimmed, "##") {
+				break
+			}
+			// Skip blank lines within the section
+			if trimmed == "" {
+				continue
+			}
+			// Parse comma-separated tags from this line
+			for _, tag := range strings.Split(trimmed, ",") {
+				tag = strings.TrimSpace(tag)
+				if tag != "" {
+					tags = append(tags, tag)
+				}
+			}
+			// Scope section is a single line of tags; stop after first non-blank line
+			break
+		}
+	}
+
+	if tags == nil {
+		return []string{}, nil
+	}
+	return tags, nil
+}
