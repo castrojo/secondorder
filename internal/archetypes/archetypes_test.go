@@ -1,7 +1,7 @@
 package archetypes
 
 import (
-	"strings"
+	"os"
 	"testing"
 )
 
@@ -96,25 +96,57 @@ func TestGetScope_CEO(t *testing.T) {
 	}
 }
 
+// TestGetScope_StopsAtNextHeading verifies that GetScope() returns ONLY the tags
+// defined under "## Scope" and stops when it encounters the next "##" heading.
+//
+// Fixture: internal/archetypes/testdata/scope-boundary.md
+//
+//	## Scope
+//	foo, bar
+//
+//	## Other Section
+//	baz, qux
+//
+// Expected: ["foo", "bar"] — NOT ["foo", "bar", "baz", "qux"]
 func TestGetScope_StopsAtNextHeading(t *testing.T) {
-	// principle-engineer.md has "## Scope clarification" before "## Scope"
-	// GetScope() must return only the tags under "## Scope", not content
-	// from any other section.
-	scope, err := GetScope("principle-engineer")
+	// Point the overrides dir at the testdata directory so GetScope can read
+	// the dedicated scope-boundary.md fixture without embedding it.
+	orig := GetOverridesDir()
+	SetOverridesDir("testdata")
+	t.Cleanup(func() {
+		SetOverridesDir(orig)
+	})
+
+	// Verify the fixture file exists so a missing file gives a clear failure.
+	if _, err := os.Stat("testdata/scope-boundary.md"); err != nil {
+		t.Fatalf("fixture file testdata/scope-boundary.md not found: %v", err)
+	}
+
+	scope, err := GetScope("scope-boundary")
 	if err != nil {
-		t.Fatalf("GetScope(principle-engineer) unexpected error: %v", err)
+		t.Fatalf("GetScope(scope-boundary) unexpected error: %v", err)
 	}
-	// Must contain at least one real scope tag
-	if len(scope) == 0 {
-		t.Fatal("GetScope(principle-engineer) returned empty scope; want real tags")
+
+	// AC3: must return ONLY the tags before the next ## heading.
+	expected := []string{"foo", "bar"}
+	if len(scope) != len(expected) {
+		t.Fatalf("GetScope(scope-boundary) = %v (len %d); want %v (len %d) — parser may have leaked tags from the '## Other Section' boundary",
+			scope, len(scope), expected, len(expected))
 	}
-	// Must NOT contain content from other sections (e.g. heading text itself)
-	for _, tag := range scope {
-		if strings.Contains(tag, "##") {
-			t.Errorf("GetScope() leaked heading text into tags: %q", tag)
+	for i, tag := range expected {
+		if scope[i] != tag {
+			t.Errorf("GetScope(scope-boundary)[%d] = %q; want %q", i, scope[i], tag)
 		}
-		if strings.Contains(tag, "clarification") {
-			t.Errorf("GetScope() leaked content from ## Scope clarification section: %q", tag)
+	}
+
+	// Explicit negative assertion: "baz" and "qux" appear ONLY after "## Other Section"
+	// and must NOT be present in the returned tags.
+	forbidden := []string{"baz", "qux"}
+	for _, tag := range scope {
+		for _, f := range forbidden {
+			if tag == f {
+				t.Errorf("GetScope(scope-boundary) returned %q which is from the post-boundary '## Other Section'; parser did not stop at ##", tag)
+			}
 		}
 	}
 }
