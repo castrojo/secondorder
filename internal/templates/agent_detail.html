@@ -134,12 +134,18 @@
             </div>
             <div>
               <label class="text-[11px] text-ink3/50">Runner</label>
-              <select id="edit-runner" name="runner" onchange="updateModels('edit-runner', 'edit-model')" class="w-full bg-sf border border-bd rounded-md px-2.5 py-1.5 text-xs text-ink outline-none focus:ring-1 focus:ring-ac">
+              <select id="edit-runner" name="runner" data-original="{{.Agent.Runner}}" onchange="updateModels('edit-runner', 'edit-model'); checkCopilotRunnerWarning('edit-runner', 'copilot-runner-warning');" class="w-full bg-sf border border-bd rounded-md px-2.5 py-1.5 text-xs text-ink outline-none focus:ring-1 focus:ring-ac">
                 <option value="claude_code" {{if eq .Agent.Runner "claude_code"}}selected{{end}}>Claude Code</option>
                 <option value="gemini" {{if eq .Agent.Runner "gemini"}}selected{{end}}>Gemini</option>
                 <option value="codex" {{if eq .Agent.Runner "codex"}}selected{{end}}>Codex</option>
                 <option value="antigravity" {{if eq .Agent.Runner "antigravity"}}selected{{end}}>Antigravity</option>
+                <option value="copilot" {{if eq .Agent.Runner "copilot"}}selected{{end}}>Copilot</option>
               </select>
+              <!-- Warning: shown via JS when runner is changed away from copilot -->
+              <div id="copilot-runner-warning" class="hidden mt-1.5 flex items-start gap-1.5 rounded-md border border-amber-400/40 bg-amber-400/10 px-2.5 py-2 text-[11px] text-amber-400 leading-snug" role="alert">
+                <svg class="w-3.5 h-3.5 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
+                <span>Warning: changing the runner from copilot may break this agent.</span>
+              </div>
             </div>
             <div>
               <label class="text-[11px] text-ink3/50">Model</label>
@@ -186,5 +192,18 @@
 document.addEventListener('DOMContentLoaded', () => {
     updateModels('edit-runner', 'edit-model');
 });
+
+function checkCopilotRunnerWarning(runnerSelectId, warningId) {
+    const runnerEl = document.getElementById(runnerSelectId);
+    const warningEl = document.getElementById(warningId);
+    if (!runnerEl || !warningEl) return;
+    const original = runnerEl.dataset.original;
+    const current = runnerEl.value;
+    if (original === 'copilot' && current !== 'copilot') {
+        warningEl.classList.remove('hidden');
+    } else {
+        warningEl.classList.add('hidden');
+    }
+}
 </script>
 {{template "foot" .}}
