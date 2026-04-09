@@ -243,7 +243,7 @@ func (u *UI) submitBacklog(w http.ResponseWriter, r *http.Request) {
 		go u.sched.WakeAgentHeartbeat(ceo)
 	}
 
-	LogActivityAndBroadcast(u.db, u.sse, u.tmpl, "backlog", "issue", "backlog", nil, text)
+	LogActivityAndBroadcast(u.db, u.sse, u.tmpl, "backlog", "backlog", "backlog", nil, text)
 
 	http.Redirect(w, r, "/issues?success=Submitted+to+backlog+for+triage", http.StatusSeeOther)
 }
