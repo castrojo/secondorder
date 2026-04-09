@@ -67,6 +67,15 @@ func Exists(slug string) bool {
 	return err == nil
 }
 
+// Get returns the archetype content for the given slug, or an error if not found.
+func Get(slug string) (string, error) {
+	data, err := Read(slug)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 // WriteToTemp writes the archetype content to a temporary file and returns its path.
 // This is useful for passing the file to external commands.
 func WriteToTemp(slug string) (string, func(), error) {

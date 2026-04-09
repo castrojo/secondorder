@@ -213,6 +213,8 @@ func (s *Scheduler) spawnAgent(agent *models.Agent, issueKey, mode, prompt strin
 			stdout, err = s.execAntigravity(ctx, agent, rawKey, runID, issueKey, prompt)
 		case "claude_code":
 			stdout, err = s.execClaudeCode(ctx, agent, rawKey, runID, issueKey, prompt)
+		case "copilot":
+			stdout, err = s.execCopilot(ctx, agent, rawKey, runID, issueKey, prompt)
 		default:
 			err = fmt.Errorf("unsupported runner: %s", runner)
 		}

@@ -346,6 +346,8 @@ func resolveRunner(model string) string {
 	switch model {
 	case "claude":
 		return "claude_code"
+	case "copilot":
+		return "copilot"
 	case "gemini", "codex":
 		return model
 	default:
@@ -381,6 +383,8 @@ func applyStartupTemplate(database *db.DB, templateName, defaultModel string) {
 			Slug             string `json:"slug"`
 			ArchetypeSlug    string `json:"archetype_slug"`
 			Model            string `json:"model"`
+			Runner           string `json:"runner"`
+			WorkingDir       string `json:"working_dir"`
 			HeartbeatEnabled bool   `json:"heartbeat_enabled"`
 			ChromeEnabled    bool   `json:"chrome_enabled"`
 		} `json:"agents"`
@@ -395,8 +399,17 @@ func applyStartupTemplate(database *db.DB, templateName, defaultModel string) {
 	runner := resolveRunner(defaultModel)
 
 	for _, a := range tmpl.Agents {
-		if !models.IsValidModelForRunner(runner, a.Model) {
-			if m, ok := models.RunnerModels[runner]; ok && len(m) > 0 {
+		agentRunner := runner
+		if a.Runner != "" {
+			agentRunner = a.Runner
+		}
+		agentWorkingDir := "."
+		if a.WorkingDir != "" {
+			agentWorkingDir = a.WorkingDir
+		}
+
+		if !models.IsValidModelForRunner(agentRunner, a.Model) {
+			if m, ok := models.RunnerModels[agentRunner]; ok && len(m) > 0 {
 				a.Model = m[0]
 			}
 		}
@@ -407,8 +420,8 @@ func applyStartupTemplate(database *db.DB, templateName, defaultModel string) {
 			Slug:             a.Slug,
 			ArchetypeSlug:    a.ArchetypeSlug,
 			Model:            a.Model,
-			Runner:           runner,
-			WorkingDir:       ".",
+			Runner:           agentRunner,
+			WorkingDir:       agentWorkingDir,
 			MaxTurns:         50,
 			TimeoutSec:       models.DefaultAgentTimeoutSec,
 			HeartbeatEnabled: a.HeartbeatEnabled,

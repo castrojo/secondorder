@@ -35,6 +35,7 @@ const (
 	RunnerGemini           = "gemini"
 	RunnerCodex            = "codex"
 	RunnerAntigravity      = "antigravity"
+	RunnerCopilot          = "copilot"
 	DefaultAgentTimeoutSec = 1200
 )
 
@@ -71,6 +72,15 @@ var RunnerModels = map[string][]string{
 		"o4-mini",
 	},
 	RunnerAntigravity: {"default"},
+	RunnerCopilot: {
+		"claude-sonnet-4.6",
+		"claude-opus-4.6",
+		"claude-haiku-4.5",
+		"gpt-5.4",
+		"gpt-5.1",
+		"gpt-5-mini",
+		"gemini-2.5-pro",
+	},
 }
 
 func IsValidModelForRunner(runner, model string) bool {
