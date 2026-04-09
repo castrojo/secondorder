@@ -29,6 +29,9 @@ type UI struct {
 		WakeAgentHeartbeat(agent *models.Agent)
 		RunAudit(maxBlocks, maxIssues int, focus, runner, model string) (string, error)
 		CancelAudit(auditRunID string) error
+		Pause()
+		Resume()
+		IsPaused() bool
 	}
 }
 
@@ -36,6 +39,9 @@ func NewUI(database *db.DB, sse *SSEHub, tmpl *template.Template, wake func(*mod
 	WakeAgentHeartbeat(*models.Agent)
 	RunAudit(int, int, string, string, string) (string, error)
 	CancelAudit(string) error
+	Pause()
+	Resume()
+	IsPaused() bool
 }) *UI {
 	return &UI{db: database, sse: sse, tmpl: tmpl, wake: wake, sched: sched}
 }
@@ -66,6 +72,7 @@ func (u *UI) Dashboard(w http.ResponseWriter, r *http.Request) {
 		"Agents":         agents,
 		"RunningAgents":  runningAgents,
 		"AlignmentScore": alignmentScore,
+		"IsPaused":       u.IsPaused(),
 	}
 
 	if activeBlock, err := u.db.GetActiveWorkBlock(); err == nil {
@@ -589,6 +596,35 @@ func (u *UI) AgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	u.sched.WakeAgentHeartbeat(agent)
 	http.Redirect(w, r, "/agents/"+slug, http.StatusSeeOther)
+}
+
+func (u *UI) SchedulerPause(w http.ResponseWriter, r *http.Request) {
+	if u.sched != nil {
+		u.sched.Pause()
+	}
+	if r.Header.Get("HX-Request") != "" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+}
+
+func (u *UI) SchedulerResume(w http.ResponseWriter, r *http.Request) {
+	if u.sched != nil {
+		u.sched.Resume()
+	}
+	if r.Header.Get("HX-Request") != "" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+}
+
+func (u *UI) IsPaused() bool {
+	if u.sched == nil {
+		return false
+	}
+	return u.sched.IsPaused()
 }
 
 func (u *UI) AgentAssign(w http.ResponseWriter, r *http.Request) {
@@ -1331,6 +1367,11 @@ func (u *UI) NotFound(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *UI) render(w http.ResponseWriter, name string, data any) {
+	if m, ok := data.(map[string]any); ok {
+		if _, exists := m["IsPaused"]; !exists {
+			m["IsPaused"] = u.IsPaused()
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := u.tmpl.ExecuteTemplate(w, name, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

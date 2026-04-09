@@ -8,6 +8,12 @@
       <p class="text-[13px] text-ink3/50 mt-0.5">Organization overview</p>
     </div>
 
+    {{if .IsPaused}}
+    <div class="mb-4 inline-flex items-center gap-2 px-3 py-1 rounded border border-amber-500/30 bg-amber-500/10 text-xs text-amber-300">
+      <span>⏸ Scheduler paused — agents are not being dispatched</span>
+    </div>
+    {{end}}
+
     <!-- Strategic Alignment -->
     <div class="mb-8 grid grid-cols-1 md:grid-cols-3 gap-3">
       <a href="/strategy" class="md:col-span-2 bg-card border border-bd rounded-lg p-5 hover:border-ac/30 transition-all group">

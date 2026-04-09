@@ -29,6 +29,7 @@ type Scheduler struct {
 	running        map[string]context.CancelFunc // runID -> cancel
 	wg             sync.WaitGroup
 	stopped        bool
+	paused         bool
 	runnerOverride string // if set, override all agents' runner for this session
 	modelOverride  string // if set, override all agents' model for this session
 	onRunStart     func(run *models.Run)
@@ -85,8 +86,35 @@ func (s *Scheduler) Stop() {
 	slog.Info("scheduler: all agents stopped")
 }
 
+func (s *Scheduler) Pause() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.paused = true
+}
+
+func (s *Scheduler) Resume() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.paused = false
+}
+
+func (s *Scheduler) IsPaused() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.paused
+}
+
 // WakeAgent spawns an agent for a specific issue (event-driven)
 func (s *Scheduler) WakeAgent(agent *models.Agent, issue *models.Issue) {
+	if s.IsPaused() {
+		issueKey := ""
+		if issue != nil {
+			issueKey = issue.Key
+		}
+		slog.Debug(fmt.Sprintf("scheduler paused: skipping WakeAgent for issue %s", issueKey))
+		return
+	}
+
 	s.mu.Lock()
 	if s.stopped {
 		s.mu.Unlock()
@@ -100,6 +128,11 @@ func (s *Scheduler) WakeAgent(agent *models.Agent, issue *models.Issue) {
 
 // WakeAgentHeartbeat spawns a heartbeat run for the agent
 func (s *Scheduler) WakeAgentHeartbeat(agent *models.Agent) {
+	if s.IsPaused() {
+		slog.Debug("scheduler paused: skipping WakeAgentHeartbeat")
+		return
+	}
+
 	s.mu.Lock()
 	if s.stopped {
 		s.mu.Unlock()

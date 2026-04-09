@@ -332,7 +332,13 @@ td.diff-code .hljs-type, td.diff-code .hljs-title.class_ { color: #f69d50; }
           Settings
         </a>
       </div>
-      <div class="px-3 py-3 border-t border-bd">
+      <div class="px-3 py-3 border-t border-bd space-y-2">
+        <form method="POST" action="{{if .IsPaused}}/scheduler/resume{{else}}/scheduler/pause{{end}}">
+          <button type="submit"
+            class="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-colors {{if .IsPaused}}bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/20{{else}}bg-amber-500/15 text-amber-400 hover:bg-amber-500/20{{end}}">
+            {{if .IsPaused}}▶ Resume{{else}}⏸ Pause{{end}}
+          </button>
+        </form>
         <button onclick="togglePalette()"
           class="w-full flex items-center gap-2 px-3 py-1.5 rounded text-xs text-ink3/50 hover:text-ink hover:bg-sf active:scale-[0.97] transition-all">
           <kbd

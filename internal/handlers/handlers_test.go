@@ -353,6 +353,9 @@ func (s *stubSched) CancelAudit(string) error         { return nil }
 func (s *stubSched) RunAudit(int, int, string, string, string) (string, error) {
 	return "", nil
 }
+func (s *stubSched) Pause()         {}
+func (s *stubSched) Resume()        {}
+func (s *stubSched) IsPaused() bool { return false }
 
 func testUI(t *testing.T, d *db.DB) *UI {
 	t.Helper()
