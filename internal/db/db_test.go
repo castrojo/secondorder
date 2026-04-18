@@ -1668,3 +1668,281 @@ func TestActivityTimeline48hFields(t *testing.T) {
 		t.Errorf("Count = %d, want 1", e.Count)
 	}
 }
+
+// --- Session-scoped API Key Lifecycle (SO-72) ---
+
+// TestSessionKeyNotRevokedOnNewRun verifies AC#1 and AC#2:
+//   - Starting a second run for agent A does NOT revoke the key issued to run-1
+//   - A key bound to agent A cannot authenticate as agent B
+func TestSessionKeyNotRevokedOnNewRun(t *testing.T) {
+	d := testDB(t)
+
+	agentA := makeAgent("agent-a")
+	d.CreateAgent(agentA)
+	agentB := makeAgent("agent-b")
+	d.CreateAgent(agentB)
+
+	// Provision a key for run-1 of agentA
+	if err := d.CreateAPIKey(agentA.ID, "run-1", "hash-run1", "so_run1", 60*time.Minute); err != nil {
+		t.Fatalf("create key run-1: %v", err)
+	}
+
+	// Provision a key for run-2 of agentA (simulates a second concurrent run)
+	if err := d.CreateAPIKey(agentA.ID, "run-2", "hash-run2", "so_run2", 60*time.Minute); err != nil {
+		t.Fatalf("create key run-2: %v", err)
+	}
+
+	// AC#1: run-1 key must still work after run-2 key was provisioned
+	got, err := d.GetAgentByAPIKey("hash-run1")
+	if err != nil {
+		t.Fatalf("AC#1: run-1 key should still be valid after run-2 started, got err: %v", err)
+	}
+	if got.ID != agentA.ID {
+		t.Errorf("AC#1: want agent %s, got %s", agentA.ID, got.ID)
+	}
+
+	// run-2 key also works
+	got2, err := d.GetAgentByAPIKey("hash-run2")
+	if err != nil {
+		t.Fatalf("run-2 key should be valid: %v", err)
+	}
+	if got2.ID != agentA.ID {
+		t.Errorf("run-2: want agent %s, got %s", agentA.ID, got2.ID)
+	}
+
+	// AC#2: a key bound to agentA returns agentA — cannot impersonate agentB
+	// GetAgentByAPIKey returns the agent the key belongs to; if key is for A,
+	// using it always yields A (the caller cannot forge the identity).
+	if got.ID == agentB.ID {
+		t.Error("AC#2: key for agentA should not resolve to agentB")
+	}
+}
+
+// TestSessionKeyExpiresAfterIdleTimeout verifies AC#3:
+// A key with expires_at in the past is treated as invalid.
+func TestSessionKeyExpiresAfterIdleTimeout(t *testing.T) {
+	d := testDB(t)
+
+	agent := makeAgent("expire-agent")
+	d.CreateAgent(agent)
+
+	// Insert a key with expires_at 1 hour in the past.
+	// We use a direct INSERT rather than CreateAPIKey(duration=0) to avoid
+	// sub-second timing races with SQLite's second-granularity datetime('now').
+	_, err := d.Exec(`INSERT INTO api_keys (id, agent_id, key_hash, prefix, created_at, expires_at)
+		VALUES (?, ?, ?, ?, datetime('now', '-2 hours'), datetime('now', '-1 hour'))`,
+		uuid.NewString(), agent.ID, "hash-expire", "so_exp")
+	if err != nil {
+		t.Fatalf("insert expired key: %v", err)
+	}
+
+	_, err = d.GetAgentByAPIKey("hash-expire")
+	if err != sql.ErrNoRows {
+		t.Errorf("AC#3: expected ErrNoRows for expired key, got %v", err)
+	}
+}
+
+// TestLegacyKeyBackwardCompat verifies AC#4 / AC#5:
+// Keys inserted without expires_at (legacy) continue to work.
+func TestLegacyKeyBackwardCompat(t *testing.T) {
+	d := testDB(t)
+
+	agent := makeAgent("legacy-agent")
+	d.CreateAgent(agent)
+
+	// Insert a legacy key without run_id or expires_at
+	legacyID := uuid.NewString()
+	_, err := d.Exec(`INSERT INTO api_keys (id, agent_id, key_hash, prefix, created_at)
+		VALUES (?, ?, ?, ?, datetime('now'))`,
+		legacyID, agent.ID, "hash-legacy", "so_leg")
+	if err != nil {
+		t.Fatalf("insert legacy key: %v", err)
+	}
+
+	got, err := d.GetAgentByAPIKey("hash-legacy")
+	if err != nil {
+		t.Fatalf("AC#4: legacy key should still resolve, got: %v", err)
+	}
+	if got.ID != agent.ID {
+		t.Errorf("AC#4: want agent %s, got %s", agent.ID, got.ID)
+	}
+}
+
+// TestRevokeRunAPIKeyOnlyAffectsTargetRun verifies that RevokeRunAPIKey
+// is scoped to a single run and does not affect keys of other runs for
+// the same agent (the core AC#1 invariant).
+func TestRevokeRunAPIKeyOnlyAffectsTargetRun(t *testing.T) {
+	d := testDB(t)
+
+	agent := makeAgent("revoke-scoped-agent")
+	d.CreateAgent(agent)
+
+	if err := d.CreateAPIKey(agent.ID, "runA", "hashA", "so_a", 60*time.Minute); err != nil {
+		t.Fatalf("create runA key: %v", err)
+	}
+	if err := d.CreateAPIKey(agent.ID, "runB", "hashB", "so_b", 60*time.Minute); err != nil {
+		t.Fatalf("create runB key: %v", err)
+	}
+
+	// Revoke only runA
+	if err := d.RevokeRunAPIKey("runA"); err != nil {
+		t.Fatalf("revoke runA: %v", err)
+	}
+
+	// runA key should be gone
+	_, errA := d.GetAgentByAPIKey("hashA")
+	if errA != sql.ErrNoRows {
+		t.Errorf("expected runA key revoked (ErrNoRows), got %v", errA)
+	}
+
+	// runB key must still be valid
+	gotB, errB := d.GetAgentByAPIKey("hashB")
+	if errB != nil {
+		t.Fatalf("runB key should survive runA revocation, got: %v", errB)
+	}
+	if gotB.ID != agent.ID {
+		t.Errorf("runB: want agent %s, got %s", agent.ID, gotB.ID)
+	}
+}
+
+// TestExpireStaleAPIKeys verifies the periodic cleanup (idle timeout enforcement).
+func TestExpireStaleAPIKeys(t *testing.T) {
+	d := testDB(t)
+
+	agent := makeAgent("stale-key-agent")
+	d.CreateAgent(agent)
+
+	// Insert a key that's already past its expiry
+	_, err := d.Exec(`INSERT INTO api_keys (id, agent_id, key_hash, prefix, created_at, expires_at)
+		VALUES (?, ?, ?, ?, datetime('now', '-2 hours'), datetime('now', '-1 hour'))`,
+		uuid.NewString(), agent.ID, "hash-stale", "so_stl")
+	if err != nil {
+		t.Fatalf("insert stale key: %v", err)
+	}
+
+	// Insert a live key
+	if err := d.CreateAPIKey(agent.ID, "run-live", "hash-live", "so_liv", 60*time.Minute); err != nil {
+		t.Fatalf("create live key: %v", err)
+	}
+
+	n, err := d.ExpireStaleAPIKeys()
+	if err != nil {
+		t.Fatalf("expire stale: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 key expired, got %d", n)
+	}
+
+	// Stale key gone
+	_, errStale := d.GetAgentByAPIKey("hash-stale")
+	if errStale != sql.ErrNoRows {
+		t.Errorf("expected stale key expired, got %v", errStale)
+	}
+
+	// Live key untouched
+	gotLive, errLive := d.GetAgentByAPIKey("hash-live")
+	if errLive != nil {
+		t.Fatalf("live key should still work: %v", errLive)
+	}
+	if gotLive.ID != agent.ID {
+		t.Errorf("live key agent mismatch: want %s, got %s", agent.ID, gotLive.ID)
+	}
+}
+
+// --- CleanupStaleRuns ---
+
+func TestCleanupStaleRunsAllRunning(t *testing.T) {
+	d := testDB(t)
+	a := makeAgent("cleanup-agent")
+	d.CreateAgent(a)
+
+	// Two running, one completed — cutoff=0 should catch all running
+	r1 := &models.Run{AgentID: a.ID, Mode: "task", Status: models.RunStatusRunning}
+	r2 := &models.Run{AgentID: a.ID, Mode: "task", Status: models.RunStatusRunning}
+	r3 := &models.Run{AgentID: a.ID, Mode: "task", Status: models.RunStatusCompleted}
+	d.CreateRun(r1)
+	d.CreateRun(r2)
+	d.CreateRun(r3)
+
+	ids, err := d.CleanupStaleRuns(0)
+	if err != nil {
+		t.Fatalf("CleanupStaleRuns: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Errorf("expected 2 cleaned run IDs, got %d: %v", len(ids), ids)
+	}
+
+	// Both running runs must now be failed
+	count, _ := d.CountRunningRuns()
+	if count != 0 {
+		t.Errorf("expected 0 running runs after cleanup, got %d", count)
+	}
+}
+
+func TestCleanupStaleRunsCutoffFiltersRecent(t *testing.T) {
+	d := testDB(t)
+	a := makeAgent("cutoff-agent")
+	d.CreateAgent(a)
+
+	// Create two runs, then back-date one to be "old"
+	rOld := &models.Run{AgentID: a.ID, Mode: "task", Status: models.RunStatusRunning}
+	rNew := &models.Run{AgentID: a.ID, Mode: "task", Status: models.RunStatusRunning}
+	d.CreateRun(rOld)
+	d.CreateRun(rNew)
+
+	// Back-date rOld to 30 minutes ago so it falls beyond a 10-minute cutoff
+	_, err := d.Exec(`UPDATE runs SET started_at=datetime('now', '-30 minutes') WHERE id=?`, rOld.ID)
+	if err != nil {
+		t.Fatalf("back-date run: %v", err)
+	}
+
+	// rNew was just created (seconds ago), so a 10-minute cutoff should skip it
+	ids, err := d.CleanupStaleRuns(10 * time.Minute)
+	if err != nil {
+		t.Fatalf("CleanupStaleRuns: %v", err)
+	}
+	if len(ids) != 1 {
+		t.Errorf("expected 1 cleaned run ID (the old one), got %d: %v", len(ids), ids)
+	}
+	if ids[0] != rOld.ID {
+		t.Errorf("expected old run %s to be cleaned, got %s", rOld.ID, ids[0])
+	}
+
+	// rNew must still be running
+	got, _ := d.GetRun(rNew.ID)
+	if got.Status != models.RunStatusRunning {
+		t.Errorf("recent run status = %q, want running", got.Status)
+	}
+}
+
+func TestCleanupStaleRunsNoneRunning(t *testing.T) {
+	d := testDB(t)
+	a := makeAgent("none-running-agent")
+	d.CreateAgent(a)
+	d.CreateRun(&models.Run{AgentID: a.ID, Mode: "task", Status: models.RunStatusCompleted})
+
+	ids, err := d.CleanupStaleRuns(10 * time.Minute)
+	if err != nil {
+		t.Fatalf("CleanupStaleRuns with no running: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Errorf("expected 0 IDs with no running runs, got %d", len(ids))
+	}
+}
+
+func TestMarkStaleRunsFailedBackwardCompat(t *testing.T) {
+	d := testDB(t)
+	a := makeAgent("compat-agent")
+	d.CreateAgent(a)
+
+	d.CreateRun(&models.Run{AgentID: a.ID, Mode: "task", Status: models.RunStatusRunning})
+	d.CreateRun(&models.Run{AgentID: a.ID, Mode: "task", Status: models.RunStatusCompleted})
+
+	affected, err := d.MarkStaleRunsFailed()
+	if err != nil {
+		t.Fatalf("MarkStaleRunsFailed: %v", err)
+	}
+	if affected != 1 {
+		t.Errorf("expected 1 affected, got %d", affected)
+	}
+}
